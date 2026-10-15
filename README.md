@@ -32,7 +32,7 @@ per-member uninstall/update afterwards.
 
 | Bundle | What's inside |
 |---|---|
-| **Essential Wallpapers** | WallpaperFlare — HD, 2K, 4K, 5K wallpapers from wallpaperflare.com, keyless scraper; WallpapersDen — HD, 4K, 5K, 8K wallpapers from wallpapersden.com, keyless scraper |
+| **Essential Wallpapers** | WallpaperFlare — HD, 2K, 4K, 5K wallpapers from wallpaperflare.com, keyless scraper; WallpapersDen — HD, 4K, 5K, 8K wallpapers from wallpapersden.com, keyless scraper; WallHere — free HD community wallpapers from wallhere.com, keyless scraper |
 
 ## Repository layout
 
