@@ -38,7 +38,7 @@ per-member uninstall/update afterwards.
 
 | Bundle | What's inside |
 |---|---|
-| **Essential Wallpapers** | WallpaperFlare — HD, 2K, 4K, 5K wallpapers from wallpaperflare.com, keyless scraper; WallpapersDen — HD, 4K, 5K, 8K wallpapers from wallpapersden.com, keyless scraper; WallHere — free HD community wallpapers from wallhere.com, keyless scraper |
+| **Essential Wallpapers** | WallpaperFlare — HD, 2K, 4K, 5K wallpapers from wallpaperflare.com, keyless scraper; WallpapersDen — HD, 4K, 5K, 8K wallpapers from wallpapersden.com, keyless scraper; WallHere — free HD community wallpapers from wallhere.com, keyless scraper; Zastavki — browse-first shelves (36 categories) from zastavki.com, keyless scraper |
 
 The catalog also carries **standalone packages** outside any bundle:
 Unsplash and Pixabay (free API key required), Pexels (free API key
@@ -46,22 +46,24 @@ required), WallpaperCave and HDQWalls (keyless scrapers).
 
 ## Repository layout
 
+- `providers/` — the provider extension sources maintained here (build happens in an app-repo checkout)
 - `tools/bundles.json` — the bundle definitions (id, name, description, packageIds)
 - `tools/build_index.py` — regenerates `gh-pages/index.json` from a directory of built `.zip` packages plus `bundles.json`
 - `gh-pages/` (branch) — `index.json` + `cloudimage.*.zip` packages; what the app fetches
 
 ### Publishing an update
 
-The provider sources no longer live in the app repository's tree — it
-ships only the built-in Wallhaven provider. Their sources are recoverable
-from the app repository's git history (any commit before the removal);
-check one out and build from there:
+The provider sources live in `providers/` in this repository (the app
+repository ships only the built-in Wallhaven provider). The older eight
+are also recoverable from the app repository's git history (any commit
+before the removal). To build one, copy its `providers/<name>` module
+into a checkout of the app repository, add the matching
+`include(":providers:<name>")` line to `settings.gradle.kts`, and run
+`./gradlew :providers:<name>:packageExtension` there:
 
-1. In a checkout of the app repo at a pre-removal commit, build the
-   provider package: `./gradlew :providers:<name>:packageExtension`
-2. Copy `providers/<name>/build/outputs/extension/*.zip` into a staging dir
-3. Edit `tools/bundles.json` if pack membership changed
-4. Regenerate and commit:
+1. Copy `providers/<name>/build/outputs/extension/*.zip` into a staging dir
+2. Edit `tools/bundles.json` if pack membership changed
+3. Regenerate and commit:
 
 ```bash
 git checkout gh-pages
