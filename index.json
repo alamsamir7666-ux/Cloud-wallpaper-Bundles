@@ -67,14 +67,14 @@
     {
       "id": "cloudimage.wallhere",
       "fileName": "cloudimage.wallhere.zip",
-      "sha256": "de2dacb68fc6b4f8615b6a3cd4750ac1c14aafe0a6fb72668122c96b58d204ef",
-      "sizeBytes": 18078,
+      "sha256": "fedcb2360bb47861eafeb72b4dfb432a43957df1665fbb3ac93b767a7854b00f",
+      "sizeBytes": 34843,
       "name": "WallHere",
-      "versionName": "1.0.0",
-      "versionCode": 1,
+      "versionName": "1.1.0",
+      "versionCode": 2,
       "apiVersion": 1,
       "author": "Cloudimage",
-      "description": "Free HD wallpapers from wallhere.com - scraped, keyless.",
+      "description": "Free HD wallpapers from wallhere.com - scraped, keyless, tag-searchable.",
       "categories": []
     },
     {
