@@ -361,14 +361,29 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
     private fun httpError(statusCode: Int): IllegalStateException =
         IllegalStateException("zastavki.com refused the exchange (HTTP $statusCode)")
 
+    /**
+     * Every fetch rides a DESKTOP Chrome identity — the sanctioned
+     * per-request override. Not cosmetic: the site serves a DIFFERENT
+     * grid to user-agents carrying "Android" (the host's own UA does) —
+     * a mobile variant whose ranking files glue the year onto the file
+     * name and disclose no derivable original. The parser tolerates
+     * that variant as a fallback; this identity asks for the desktop
+     * markup the site's own desktop users get, where every thumb
+     * carries the year segment and the originals family is derivable.
+     */
     private suspend fun get(url: String) =
-        httpClient?.get(url)
+        httpClient?.get(url, mapOf("User-Agent" to USER_AGENT))
             ?: error("provider used before configure()")
 
     /** The site's own User-Agent-facing image host prefix is absolute everywhere. */
     private companion object {
         const val ID = "cloudimage.zastavki"
         const val BASE_URL = "https://www.zastavki.com"
+
+        /** The desktop-Chrome identity every fetch rides — see [get]. */
+        const val USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
         /** The all-time most-downloaded walk — the popular feed. */
         const val POPULAR_PATH = "/?r=site%2Flist&orderby=downloads"

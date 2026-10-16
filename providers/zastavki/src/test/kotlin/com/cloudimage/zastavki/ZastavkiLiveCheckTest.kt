@@ -30,9 +30,9 @@ class ZastavkiLiveCheckTest {
     private val provider = ZastavkiWallpaperProvider()
 
     /**
-     * The plugin facade over HttpURLConnection, sending the app's own
-     * User-Agent — the same identity [com.cloudimage.core.network]
-     * sends.
+     * The plugin facade over HttpURLConnection — honoring the
+     * provider's per-request User-Agent override, exactly as the host's
+     * real client does, so this check sees the markup the app sees.
      */
     private class LiveClient : ProviderHttpClient {
         override suspend fun get(
@@ -45,7 +45,8 @@ class ZastavkiLiveCheckTest {
             connection.instanceFollowRedirects = true
             connection.setRequestProperty(
                 "User-Agent",
-                "Cloudimage/1.0 (Android; +https://github.com/alamsamir7666-ux/Cloud-Wallpaper)",
+                headers["User-Agent"]
+                    ?: "Cloudimage/1.0 (Android; +https://github.com/alamsamir7666-ux/Cloud-Wallpaper)",
             )
             val status = connection.responseCode
             val body =

@@ -161,9 +161,27 @@ internal object ZastavkiParser {
 
     /**
      * The thumbnail's size-family tail: `{anything}_{sizeCode}.jpg`.
-     * The size code (32 for 286x180 thumbs) is what the original drops.
+     * The size code (32 for 286x180 thumbs, 33 for the mobile variant's
+     * 600x382) is what the original drops.
      */
     private val THUMB_SIZE_SUFFIX = Regex("""_(\d{1,3})\.jpe?g$""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Any CDN size-family path segment — the desktop grid's 286x180 and
+     * the mobile variant's 600x382 alike. The site serves the mobile
+     * family to every user-agent carrying "Android" (the host's own
+     * UA does), so the parser accepts both.
+     */
+    private val PICTURE_SIZE_FAMILY = Regex("""/pictures/\d+x\d+/""")
+
+    /**
+     * The size family followed by the YEAR segment the originals family
+     * also uses — the shape the original's URL is derivable from. The
+     * mobile ranking variant glues the year onto the file name instead
+     * (`…/600x382/2007Zodiac…`), states no year segment, and is
+     * therefore not derivable.
+     */
+    private val SIZE_FAMILY_WITH_YEAR = Regex("""/pictures/(\d+x\d+)/\d{4}/""")
 
     /** A Cyrillic character — the tell of a Russian-language title. */
     private fun isCyrillic(text: String): Boolean = text.any { it.code in CYRILLIC_FIRST..CYRILLIC_LAST }
@@ -201,7 +219,7 @@ internal object ZastavkiParser {
             if (owningPath != null && categoryPath != owningPath) continue
             val img = match.groupValues[3]
             val thumb = IMG_SRC.find(img)?.groupValues?.get(1) ?: continue
-            if (!thumb.contains("286x180")) continue
+            if (!PICTURE_SIZE_FAMILY.containsMatchIn(thumb)) continue
             val alt =
                 IMG_ALT
                     .find(img)
@@ -219,7 +237,7 @@ internal object ZastavkiParser {
                 stated
                     ?: slugTitle(thumb, categoryPath)?.takeIf { it.isNotBlank() }
                     ?: "Wallpaper $id"
-            val full = originalOf(thumb) ?: continue
+            val full = originalOf(thumb) ?: thumb
             byId[id] =
                 GridItem(
                     sitePath = "$categoryPath/wallpaper-$id",
@@ -252,7 +270,7 @@ internal object ZastavkiParser {
             if (sub.isBlank() || sub.contains('/')) continue
             val img = match.groupValues[2]
             val cover = IMG_SRC.find(img)?.groupValues?.get(1) ?: continue
-            if (!cover.contains("286x180")) continue
+            if (!PICTURE_SIZE_FAMILY.containsMatchIn(cover)) continue
             val alt =
                 IMG_ALT
                     .find(img)
@@ -337,7 +355,11 @@ internal object ZastavkiParser {
             THUMB_SIZE_SUFFIX
                 .replace(thumbUrl, "_.jpg")
                 .takeIf { it != thumbUrl } ?: return null
-        return withoutSize.replace("/pictures/286x180/", "/pictures/originals/")
+        // Derivable only when the path carries the year segment the
+        // originals family uses; the mobile variant's year-glued
+        // ranking files state no such segment.
+        val family = SIZE_FAMILY_WITH_YEAR.find(withoutSize) ?: return null
+        return withoutSize.replaceFirst("/${family.groupValues[1]}/", "/originals/")
     }
 
     /**
@@ -353,7 +375,12 @@ internal object ZastavkiParser {
         thumbUrl: String,
         categoryPath: String,
     ): String? {
-        val base = thumbUrl.substringAfterLast('/').substringBeforeLast('.')
+        var base = thumbUrl.substringAfterLast('/').substringBeforeLast('.')
+        // The mobile ranking variant glues the batch year onto the file
+        // name (`2007Zodiac…`) — strip it before prefix matching.
+        if (base.length >= 4 && base.take(4).all { it.isDigit() }) {
+            base = base.substring(4)
+        }
         val segments = categoryPath.split('/')
         val prefixes =
             buildList {

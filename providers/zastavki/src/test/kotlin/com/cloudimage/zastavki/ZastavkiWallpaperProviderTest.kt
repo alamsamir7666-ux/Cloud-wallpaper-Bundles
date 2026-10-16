@@ -36,6 +36,7 @@ class ZastavkiWallpaperProviderTest {
      */
     private class FakeClient : ProviderHttpClient {
         val requests = mutableListOf<String>()
+        val sentHeaders = mutableListOf<Map<String, String>>()
         var routes: Map<String, ProviderHttpResponse> = emptyMap()
 
         override suspend fun get(
@@ -43,6 +44,7 @@ class ZastavkiWallpaperProviderTest {
             headers: Map<String, String>,
         ): ProviderHttpResponse {
             requests += url
+            sentHeaders += headers
             return routes.entries
                 .firstOrNull { (prefix, _) -> url.startsWith(prefix) }
                 ?.value
@@ -201,6 +203,38 @@ class ZastavkiWallpaperProviderTest {
         </div></body></html>
         """.trimIndent()
 
+    /**
+     * The ranking route's MOBILE variant — what the site serves to every
+     * user-agent carrying "Android" (the host's own UA does): the same
+     * img-wrap anchors, but 600x382 preview thumbs whose ranking files
+     * glue the batch year onto the file name and disclose no year
+     * segment, so no original is derivable and the thumb itself stands
+     * in as the full URL until [ZastavkiWallpaperProvider.details]
+     * upgrades it. The provider's per-request desktop User-Agent asks
+     * for the desktop markup; this fixture pins the fallback should the
+     * host ever override the agent back.
+     */
+    private val mobileRankingGrid =
+        """
+        <div id="day-list-content-block">
+        <a class="img-wrap" href="/rus/Zodiac_signs/wallpaper-4072.htm" title="Дева">
+            <img src="/pictures/600x382/2007Zodiac_signs_Virgo_004072_33.jpg" alt="Дева">
+        </a>
+        </div>
+        """.trimIndent()
+
+    /**
+     * The subcategory grid's mobile variant — 600x382 thumbs that KEEP
+     * the year segment, so the originals family stays derivable across
+     * size families.
+     */
+    private val mobileMountainsGrid =
+        """
+        <a class="img-wrap" href="/rus/Nature/Mountains/wallpaper-179442.htm" title="Яркое солнце над горами">
+            <img src="/pictures/600x382/2025/Nature___Mountains_Bright_sun_over_the_mountains_near_the_frozen_lake_179442_33.jpg" alt="Bright sun over the mountains near the frozen lake">
+        </a>
+        """.trimIndent()
+
     // ------------------------------------------------------------------ meta
 
     @Test
@@ -297,6 +331,63 @@ class ZastavkiWallpaperProviderTest {
             val page = provider.popular(101).getOrThrow()
             assertTrue(page.wallpapers.isEmpty())
             assertNull(page.nextPage)
+        }
+
+    @Test
+    fun everyFetchRidesTheDesktopIdentity() =
+        runTest {
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://www.zastavki.com/?r=site%2Flist&orderby=downloads&page=1" to ok(rankingGrid),
+                    ),
+                )
+            provider.popular(1).getOrThrow()
+            // The sanctioned per-request override: the host's own
+            // Android-bearing UA would earn the mobile grid variant.
+            assertTrue(
+                client.sentHeaders.all {
+                    it["User-Agent"]?.contains("Windows NT 10.0") == true
+                },
+            )
+        }
+
+    @Test
+    fun theMobileRankingVariantParsesWithTheThumbAsFull() =
+        runTest {
+            configureWith(
+                mapOf(
+                    "https://www.zastavki.com/?r=site%2Flist&orderby=downloads&page=1" to ok(mobileRankingGrid),
+                ),
+            )
+            val page = provider.popular(1).getOrThrow()
+            assertEquals(1, page.wallpapers.size)
+            // Year-glued file, no year segment: the thumb itself stands
+            // in as the full URL — a real, publicly served file.
+            assertEquals(
+                "https://www.zastavki.com/pictures/600x382/2007Zodiac_signs_Virgo_004072_33.jpg",
+                page.wallpapers[0].thumbUrl,
+            )
+            assertEquals(page.wallpapers[0].thumbUrl, page.wallpapers[0].fullUrl)
+            // The glued year is stripped before the category prefix.
+            assertEquals("Virgo", page.wallpapers[0].title)
+        }
+
+    @Test
+    fun theMobileShelfVariantKeepsDerivingOriginals() =
+        runTest {
+            configureWith(
+                mapOf(
+                    "https://www.zastavki.com/eng/Nature/Mountains/2/" to ok("<html></html>"),
+                    "https://www.zastavki.com/eng/Nature/Mountains/" to ok(mobileMountainsGrid),
+                ),
+            )
+            val wallpapers = provider.albumWallpapers("Nature/Mountains").getOrThrow()
+            assertEquals(1, wallpapers.size)
+            assertEquals(
+                "https://www.zastavki.com/pictures/originals/2025/Nature___Mountains_Bright_sun_over_the_mountains_near_the_frozen_lake_179442_.jpg",
+                wallpapers[0].fullUrl,
+            )
         }
 
     // ---------------------------------------------------------------- search
