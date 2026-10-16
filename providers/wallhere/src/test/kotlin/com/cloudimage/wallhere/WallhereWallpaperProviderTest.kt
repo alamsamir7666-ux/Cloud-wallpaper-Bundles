@@ -226,14 +226,66 @@ class WallhereWallpaperProviderTest {
         }
 
     @Test
-    fun currentPageDisagreementStopsTheWalk() =
+    fun currentPageDisagreementIsADescribedFailure() =
         runTest {
             configureWith(mapOf("https://wallhere.com/en/wallpapers?order=popular" to ok(listing)))
             // The fixture's bar marks page 1 as current; a page-3 request
-            // the site ignored must not report a next page.
-            provider.popular(3, Filters.None).getOrThrow().also { page ->
-                assertEquals(4, page.wallpapers.size)
-                assertNull(page.nextPage)
+            // the site ignored must NAME the mismatch (v1.1.1: v1.1.0
+            // answered page one's items with no next page, appending
+            // duplicates into keyed grids).
+            val failure = provider.popular(3, Filters.None).exceptionOrNull()
+            assertEquals(
+                "wallhere served page 1 where page 3 was requested — the page parameter did not take",
+                (failure as IllegalStateException).message,
+            )
+        }
+
+    @Test
+    fun continuationWithoutAWallpaperGridIsADescribedFailure() =
+        runTest {
+            // A page-two answer whose bar marks page two but whose grid
+            // carries no cells: v1.1.0 answered an empty page whose next
+            // page could still exist, looping the host's load-more
+            // footer forever.
+            configureWith(
+                mapOf(
+                    "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok(lastPageBar),
+                    "https://wallhere.com/en/wallpapers?order=popular" to ok(listing),
+                ),
+            )
+            provider.popular(1, Filters.None).getOrThrow()
+            val failure = provider.popular(2, Filters.None).exceptionOrNull()
+            assertEquals(
+                "wallhere's page 2 carried no recognizable wallpapers",
+                (failure as IllegalStateException).message,
+            )
+        }
+
+    @Test
+    fun blankQueriesHonorTheRequestedPage() =
+        runTest {
+            // The contract's escape hatch walks the latest order at the
+            // page the host asked for — v1.1.0 hardcoded page one.
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://wallhere.com/en/wallpapers?order=latest&page=2" to ok("$grid\n$lastPageBar"),
+                        "https://wallhere.com/en/wallpapers?order=latest" to ok(listing),
+                    ),
+                )
+            provider.search("   ", 2, Filters.None).getOrThrow()
+            assertEquals("https://wallhere.com/en/wallpapers?order=latest&page=2", client.requests.single())
+        }
+
+    @Test
+    fun anUnrecognizedFirstPageStaysTheEmptyFeed() =
+        runTest {
+            // Page one keeps the quiet shape: a first page whose grid
+            // parses to nothing is the honest "no results" surface, not
+            // a source failure.
+            configureWith(mapOf("https://wallhere.com/en/wallpapers?q=zzz" to ok(bar)))
+            provider.search("zzz", 1, Filters.None).getOrThrow().also { page ->
+                assertTrue(page.wallpapers.isEmpty())
             }
         }
 

@@ -1,8 +1,8 @@
 {
   "id": "cloudimage.wallhere",
   "name": "WallHere",
-  "versionName": "1.1.0",
-  "versionCode": 2,
+  "versionName": "1.1.1",
+  "versionCode": 3,
   "author": "Cloudimage",
   "description": "Free HD wallpapers from wallhere.com - scraped, keyless, tag-searchable.",
   "apiVersion": 1,

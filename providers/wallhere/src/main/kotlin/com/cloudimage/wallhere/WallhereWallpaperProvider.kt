@@ -110,7 +110,9 @@ import java.net.URLEncoder
  *   the popular order;
  * - [search] rides the baked tag lane on exact name matches, the site's
  *   own `/en/wallpapers?q=` search otherwise — one request per page,
- *   as deep as the site's bar goes;
+ *   as deep as the site's bar goes; a BLANK query rides the latest
+ *   order's own page (v1.1.1: the contract's escape hatch used to
+ *   hardcode page one whatever page the host asked for);
  * - [sections] offers the two ranked shelves plus tag-style `query`
  *   presets whose values NAME catalogue tags (the row walks that tag's
  *   grid through [search]);
@@ -121,6 +123,20 @@ import java.net.URLEncoder
  *   harvested from grids already seen — never a third-party service;
  * - [random] serves the site's own `/en/random` batch as-is — a real
  *   random feed, advertised with [Capability.RANDOM].
+ *
+ * ## Continuation honesty (v1.1.1)
+ *
+ * Every listing is a flat twenty-four-item page; the host's endless
+ * scroll walks `?page=N` as deep as the bar goes. A continuation that
+ * comes back WRONG is reported, never papered over: a page-two-plus
+ * fetch whose grid parses to nothing, and one whose bar marks a
+ * CURRENT page that disagrees with the page requested (the site served
+ * something other than page N — the parameter did not take), both
+ * throw a source failure NAMING the mismatch instead of v1.1.0's
+ * silent stops (an empty append that loops the footer forever, and a
+ * duplicate append that crashes keyed grids). Page one keeps its
+ * quiet shape: an unrecognized or genuinely empty first page stays an
+ * empty feed — the honest "no results" surface a fresh search needs.
  *
  * ## Politeness
  *
@@ -136,7 +152,7 @@ class WallhereWallpaperProvider : WallpaperProvider {
         ProviderMeta(
             id = ID,
             name = "WallHere",
-            versionName = "1.1.0",
+            versionName = "1.1.1",
             author = "Cloudimage",
             description = "Free HD wallpapers from wallhere.com - scraped, keyless, tag-searchable.",
             // The site mixes adult-tagged content into its default feeds;
@@ -185,7 +201,9 @@ class WallhereWallpaperProvider : WallpaperProvider {
      * that tag's own strictly-tagged grid (deep pagination, honest
      * purity), every other query rides the search the site's own top
      * form submits (`/en/wallpapers?q=`). A blank query (the contract's
-     * escape hatch) lands on the latest order's first page.
+     * escape hatch) lands on the latest order — at the page the host
+     * asked for (v1.1.1: the page argument is honored, not hardcoded to
+     * one).
      */
     override suspend fun search(
         query: String,
@@ -196,7 +214,7 @@ class WallhereWallpaperProvider : WallpaperProvider {
             val sfwOnly = wantsSfwOnly(filters)
             val trimmed = query.trim()
             when {
-                trimmed.isBlank() -> listingPage(LATEST_PATH, 1, sfwOnly)
+                trimmed.isBlank() -> listingPage(LATEST_PATH, page, sfwOnly)
                 else -> {
                     val lane = WallhereTags.exactTag(trimmed)?.let { "/en/tag/${it.id}" }
                     listingPage(lane ?: searchPath(trimmed), page, sfwOnly)
@@ -311,10 +329,16 @@ class WallhereWallpaperProvider : WallpaperProvider {
     /**
      * Any listing page: fetch, parse the grid, read the pagination bar.
      * The bar is the site's own "more exists" signal — `nextPage` exists
-     * only when the bar advertises a page beyond the one requested. And
-     * when the bar marks a CURRENT page that disagrees with the page
-     * requested (a parameter the site ignored), the walk stops instead
-     * of looping the first page forever. A [MAX_PAGES] cap bounds the
+     * only when the bar advertises a page beyond the one requested.
+     * Continuations are honest (v1.1.1): a page-two-plus answer whose
+     * bar marks a CURRENT page that disagrees with the page requested
+     * (the site served something other than page N — the parameter did
+     * not take) is a DESCRIBED source failure, and so is a continuation
+     * whose grid parses to nothing — v1.1.0 stopped silently there,
+     * which appended duplicates into keyed grids (a crash) or spun the
+     * load-more footer forever. Page one keeps the quiet shape: an
+     * unrecognized or genuinely empty first page answers an empty feed,
+     * the honest "no results" surface. A [MAX_PAGES] cap bounds the
      * deepest scroll the same politeness way.
      */
     private suspend fun listingPage(
@@ -332,9 +356,20 @@ class WallhereWallpaperProvider : WallpaperProvider {
         val bar = WallhereParser.parsePagination(response.bodyText)
         if (page > 1 && bar.currentPage != null && bar.currentPage != page) {
             // The site served a different page than requested — the deep
-            // URL shape did not take. Serve nothing further rather than
-            // looping page one forever.
-            return Page(items.map(::gridWallpaper), nextPage = null)
+            // URL shape did not take. Name the mismatch instead of
+            // serving page one's items again (v1.1.0 appended the
+            // duplicates, which crashes keyed grids) or stopping in
+            // silence.
+            throw IllegalStateException(
+                "wallhere served page ${bar.currentPage} where page $page was requested — the page parameter did not take",
+            )
+        }
+        if (page > 1 && items.isEmpty()) {
+            // A continuation with no grid: either the markup changed or
+            // the answer is not a listing at all. The walk stops HERE,
+            // with the reason said out loud — an empty append would loop
+            // the host's load-more footer forever.
+            throw IllegalStateException("wallhere's page $page carried no recognizable wallpapers")
         }
         val nextPage = if (bar.maxPage > page) page + 1 else null
         return Page(items.map(::gridWallpaper), nextPage = nextPage)
