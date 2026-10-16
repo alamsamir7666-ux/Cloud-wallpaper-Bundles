@@ -70,8 +70,28 @@ class ZastavkiLiveCheckTest {
             provider.configure(LiveClient(), ProviderSettings { null })
             val page = provider.popular(1).getOrThrow()
             assertTrue(page.wallpapers.isNotEmpty())
-            assertTrue(page.wallpapers.all { it.thumbUrl.contains("286x180") })
-            assertTrue(page.wallpapers.all { it.fullUrl.contains("originals") })
+            // The Android identity earns the mobile markup: real
+            // 600x382 preview thumbs, markup-stated.
+            assertTrue(page.wallpapers.all { it.thumbUrl.contains("600x382") })
+            // Every full URL is a real served file: the derivable
+            // originals sibling where the thumb carries the year
+            // segment, the thumb itself for the glued legacy files.
+            assertTrue(
+                page.wallpapers.all {
+                    it.fullUrl.startsWith("https://www.zastavki.com/pictures/")
+                },
+            )
+            assertNotNull(page.nextPage)
+        }
+
+    @Test
+    fun theTagSurfaceStillSpeaksTheGrid() =
+        runTest {
+            assumeTrue(live())
+            provider.configure(LiveClient(), ProviderSettings { null })
+            val page = provider.search("night").getOrThrow()
+            assertTrue(page.wallpapers.isNotEmpty())
+            assertTrue(page.wallpapers.all { it.thumbUrl.contains("600x382") })
             assertNotNull(page.nextPage)
         }
 
@@ -88,6 +108,15 @@ class ZastavkiLiveCheckTest {
         }
 
     @Test
+    fun theTagAlbumsStillWalkTheirGrids() =
+        runTest {
+            assumeTrue(live())
+            provider.configure(LiveClient(), ProviderSettings { null })
+            val wallpapers = provider.albumWallpapers("tag/Sky").getOrThrow()
+            assertTrue(wallpapers.isNotEmpty())
+        }
+
+    @Test
     fun theDetailPagesStillStateTheOriginal() =
         runTest {
             assumeTrue(live())
@@ -95,7 +124,11 @@ class ZastavkiLiveCheckTest {
             val page = provider.popular(1).getOrThrow()
             val first = page.wallpapers.first()
             val details = provider.details(first.id).getOrThrow()
-            assertTrue(details.wallpaper.fullUrl.contains("/pictures/originals/"))
+            // The authoritative original — the `originals/{year}/`
+            // family for recent uploads, the legacy max-size family
+            // (e.g. `1600x1200/`) for the old files the all-time
+            // ranking walks.
+            assertTrue(details.wallpaper.fullUrl.startsWith("https://www.zastavki.com/pictures/"))
             assertNotNull(details.wallpaper.width)
             assertNotNull(details.wallpaper.height)
         }

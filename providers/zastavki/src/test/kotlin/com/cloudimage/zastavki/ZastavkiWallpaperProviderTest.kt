@@ -21,10 +21,13 @@ import org.junit.Test
  * carry English titles), the pagination bar's numbered
  * `/rus/{cat}/{sub}/{N}/` links, the category page's subcategory
  * tiles, the detail page's `og:image` original with its true
- * dimensions and `user-added` uploader, and the ranking route's
+ * dimensions and `user-added` uploader, the ranking route's
  * Russian-titled cells whose English titles are mined from the
- * thumbnail's own URL slug — all covered without a network, exactly
- * like the WallpaperFlare suite this mirrors.
+ * thumbnail's own URL slug, the TAG grids the search surface rides
+ * (mobile markup, 600x382 family, legacy files with the year glued),
+ * and both grid variants the Android-UA identity earns — all covered
+ * without a network, exactly like the WallpaperFlare suite this
+ * mirrors.
  */
 class ZastavkiWallpaperProviderTest {
     private val provider = ZastavkiWallpaperProvider()
@@ -235,6 +238,54 @@ class ZastavkiWallpaperProviderTest {
         </a>
         """.trimIndent()
 
+    /**
+     * A TAG grid as the site's own tag pages render them (the search
+     * surface) — cells from the live `/rus/tag/Night/` page verbatim in
+     * structure: the mobile markup's 600x382 thumbs, every file name
+     * carrying the batch year GLUED on (no derivable original anywhere
+     * on this surface — the real 600x382 thumb itself is the full URL
+     * until `details()` upgrades it), the third cell a `.png` the
+     * size-suffix derivation would decline anyway. Titles are Russian
+     * on tag pages — the English ones are mined from the thumbnail's
+     * own URL slug, glued year stripped.
+     */
+    private val tagGrid =
+        """
+        <div class="row-fluid">
+        <a class="img-wrap" href="/rus/Drawn_wallpapers/wallpaper-97970.htm" title="Черный кот лунной ночью">
+            <img src="/pictures/600x382/2015Drawn_wallpapers_Black_cat_moon_at_night_097970_33.jpg" alt="Черный кот лунной ночью">
+        </a>
+        <a class="img-wrap" href="/rus/Nature/Mountains/wallpaper-80955.htm" title="Cветлая ночь в горах">
+            <img src="/pictures/600x382/2014Nature___Mountains_Bright_night_in_the_mountains_080955_33.jpg" alt="Cветлая ночь в горах">
+        </a>
+        <a class="img-wrap" href="/rus/Games/wallpaper-78741.htm" title="Автострада лунной ночью">
+            <img src="/pictures/600x382/2014Games_Expressway_in_the_moonlit_night_078741_33.png" alt="Автострада лунной ночью">
+        </a>
+        </div>
+        """.trimIndent()
+
+    /**
+     * The Nature category page as the category-search lane sees it —
+     * its subcategory tiles plus its own page-one grid of
+     * `/rus/Nature/wallpaper-{id}.htm` cells carrying the year
+     * SEGMENT (the flat category grids, live-verified), the path a
+     * category query rides, scoped to the category's own path.
+     */
+    private val natureCategoryPage =
+        """
+        <div class="row-fluid">
+        <a href="/rus/Nature/Flowers/">
+            <img src="/pictures/286x180/2012/Nature_Flowers__000615_32.jpg" alt="Flowers">
+        </a>
+        <a class="img-wrap" href="/rus/Nature/wallpaper-175038.htm" title="Природа">
+            <img src="/pictures/600x382/2024/Nature_Lavender_field_at_sunrise_175038_33.jpg" alt="Lavender field at sunrise">
+        </a>
+        <a class="img-wrap" href="/rus/People/Children/wallpaper-179844.htm" title="Ребенок">
+            <img src="/pictures/600x382/2025/People___Children_Newborn_baby_with_deer_antlers_179844_33.jpg" alt="Newborn baby with deer antlers">
+        </a>
+        </div>
+        """.trimIndent()
+
     // ------------------------------------------------------------------ meta
 
     @Test
@@ -244,6 +295,8 @@ class ZastavkiWallpaperProviderTest {
         assertEquals(ContentRating.SKETCHY, provider.meta.contentRating)
         assertTrue(provider.capabilities.contains(Capability.ALBUMS))
         assertTrue(provider.capabilities.contains(Capability.POPULAR))
+        assertTrue(provider.capabilities.contains(Capability.SEARCH))
+        assertTrue(provider.capabilities.contains(Capability.TAGS))
     }
 
     @Test
@@ -261,6 +314,9 @@ class ZastavkiWallpaperProviderTest {
             assertTrue(albums.size >= 10)
             assertTrue(albums.all { it.coverUrl.startsWith("https://www.zastavki.com/pictures/") })
             assertTrue(albums.any { it.id == "Nature/Mountains" })
+            // The showcase tag row — the tag surface made discoverable.
+            assertTrue(albums.any { it.id == "tag/Sky" })
+            assertTrue(albums.any { it.id == "tag/Night" })
         }
 
     // --------------------------------------------------------------- popular
@@ -334,7 +390,7 @@ class ZastavkiWallpaperProviderTest {
         }
 
     @Test
-    fun everyFetchRidesTheDesktopIdentity() =
+    fun everyFetchRidesTheAndroidIdentity() =
         runTest {
             val client =
                 configureWith(
@@ -343,11 +399,13 @@ class ZastavkiWallpaperProviderTest {
                     ),
                 )
             provider.popular(1).getOrThrow()
-            // The sanctioned per-request override: the host's own
-            // Android-bearing UA would earn the mobile grid variant.
+            // The sanctioned per-request override — the MOBILE markup
+            // this identity earns states its thumbs in the real 600x382
+            // preview family (and its legacy files carry the glued year
+            // whose derived original would 404).
             assertTrue(
                 client.sentHeaders.all {
-                    it["User-Agent"]?.contains("Windows NT 10.0") == true
+                    it["User-Agent"]?.contains("Android") == true
                 },
             )
         }
@@ -393,12 +451,125 @@ class ZastavkiWallpaperProviderTest {
     // ---------------------------------------------------------------- search
 
     @Test
-    fun searchAnswersEmptyTheSitesOwnWay() =
+    fun searchWalksTheBestMatchingTagsOwnGrid() =
         runTest {
-            val client = configureWith(mapOf())
-            val page = provider.search("mountain").getOrThrow()
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://www.zastavki.com/eng/tag/Night/" to ok(tagGrid),
+                    ),
+                )
+            val page = provider.search("night").getOrThrow()
+
+            assertEquals(3, page.wallpapers.size)
+            assertEquals(2, page.nextPage)
+            // The glued-year legacy cell: the thumb itself is the full
+            // URL — a real served file.
+            assertEquals(
+                "https://www.zastavki.com/pictures/600x382/2015Drawn_wallpapers_Black_cat_moon_at_night_097970_33.jpg",
+                page.wallpapers[0].thumbUrl,
+            )
+            assertEquals(page.wallpapers[0].thumbUrl, page.wallpapers[0].fullUrl)
+            // The slug-mined English title, glued year stripped.
+            assertEquals("Black cat moon at night", page.wallpapers[0].title)
+            // Tag pages glue the batch year onto EVERY file name —
+            // live-verified — so no cell on this surface derives an
+            // original: the real 600x382 thumb stands in as the full
+            // URL until details() upgrades it with og:image.
+            assertEquals(page.wallpapers[1].thumbUrl, page.wallpapers[1].fullUrl)
+            assertEquals(
+                "Bright night in the mountains",
+                page.wallpapers[1].title,
+            )
+            // The .png cell: no derivation anywhere on this surface
+            // either — the thumb stands in.
+            assertEquals(page.wallpapers[2].thumbUrl, page.wallpapers[2].fullUrl)
+            assertTrue(
+                client.requests.any { it == "https://www.zastavki.com/eng/tag/Night/" },
+            )
+        }
+
+    @Test
+    fun searchPaginatesTheTagsBlindWalk() =
+        runTest {
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://www.zastavki.com/eng/tag/Night/2/" to ok(tagGrid),
+                    ),
+                )
+            val page = provider.search("night", 2).getOrThrow()
+            assertEquals(3, page.wallpapers.size)
+            assertEquals(3, page.nextPage)
+            assertTrue(
+                client.requests.any { it == "https://www.zastavki.com/eng/tag/Night/2/" },
+            )
+        }
+
+    @Test
+    fun theTagWalkEndsAtTheSitesOwnRefusal() =
+        runTest {
+            configureWith(
+                mapOf(
+                    "https://www.zastavki.com/eng/tag/Night/2/" to
+                        ProviderHttpResponse(404, emptyMap(), ByteArray(0)),
+                ),
+            )
+            val page = provider.search("night", 2).getOrThrow()
             assertTrue(page.wallpapers.isEmpty())
             assertNull(page.nextPage)
+        }
+
+    @Test
+    fun theTagWalkIsCapped() =
+        runTest {
+            val client = configureWith(mapOf())
+            val page = provider.search("night", 31).getOrThrow()
+            assertTrue(page.wallpapers.isEmpty())
+            assertNull(page.nextPage)
+            assertTrue(client.requests.isEmpty())
+        }
+
+    @Test
+    fun aQueryNamingNoTagRidesTheCategoryLane() =
+        runTest {
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://www.zastavki.com/eng/Nature/" to ok(natureCategoryPage),
+                    ),
+                )
+            val page = provider.search("nature").getOrThrow()
+
+            // The category's own grid cell; the tile and the foreign
+            // sidebar cell stay out.
+            assertEquals(1, page.wallpapers.size)
+            assertEquals("Nature/wallpaper-175038", page.wallpapers[0].id)
+            // The top-category pagination is 502-dead beyond page one —
+            // the category lane states no next page, the site's own
+            // limit mirrored honestly.
+            assertNull(page.nextPage)
+            assertTrue(
+                client.requests.any { it == "https://www.zastavki.com/eng/Nature/" },
+            )
+        }
+
+    @Test
+    fun aQueryNamingNothingAnswersEmptyWithoutFiring() =
+        runTest {
+            val client = configureWith(mapOf())
+            val page = provider.search("zzzqqq").getOrThrow()
+            assertTrue(page.wallpapers.isEmpty())
+            assertNull(page.nextPage)
+            assertTrue(client.requests.isEmpty())
+        }
+
+    @Test
+    fun suggestTagsAnswersOfflineFromTheBakedCatalogue() =
+        runTest {
+            val client = configureWith(mapOf())
+            val suggestions = provider.suggestTags("night").getOrThrow()
+            assertTrue(suggestions.contains("Night"))
             assertTrue(client.requests.isEmpty())
         }
 
@@ -446,6 +617,30 @@ class ZastavkiWallpaperProviderTest {
             val client = configureWith(mapOf())
             assertTrue(provider.albums("Nonsense").getOrThrow().isEmpty())
             assertTrue(client.requests.isEmpty())
+        }
+
+    @Test
+    fun searchAlbumsOffersTheMatchingTagsAsShelves() =
+        runTest {
+            val client = configureWith(mapOf())
+            val albums = provider.searchAlbums("night").getOrThrow()
+
+            assertTrue(albums.isNotEmpty())
+            assertTrue(albums.size <= 8)
+            assertTrue(albums.all { it.id.startsWith("tag/") })
+            // The exact match leads; the showcase cover rides it.
+            assertEquals("tag/Night", albums[0].id)
+            assertEquals("Night", albums[0].title)
+            assertTrue(albums[0].coverUrl.contains("600x382"))
+            // Prefix-tier matches follow the exact one.
+            assertTrue(albums.any { it.id == "tag/Night_city" })
+            assertTrue(client.requests.isEmpty())
+        }
+
+    @Test
+    fun searchAlbumsOnNoMatchAnswersEmpty() =
+        runTest {
+            assertTrue(provider.searchAlbums("zzzqqq").getOrThrow().isEmpty())
         }
 
     @Test
@@ -519,6 +714,50 @@ class ZastavkiWallpaperProviderTest {
                 ),
             )
             val wallpapers = provider.albumWallpapers("Girls").getOrThrow()
+            assertEquals(ContentRating.SKETCHY, wallpapers[0].contentRating)
+        }
+
+    @Test
+    fun aTagAlbumWalksItsGridUnscoped() =
+        runTest {
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://www.zastavki.com/eng/tag/Night/2/" to ok("<html></html>"),
+                        "https://www.zastavki.com/eng/tag/Night/" to ok(tagGrid),
+                    ),
+                )
+            val wallpapers = provider.albumWallpapers("tag/Night").getOrThrow()
+
+            // A tag's grid mixes every category — all three cells are in,
+            // including the .png one, and each item's rating rides its
+            // OWN category path (a tag grid can carry glamour cells).
+            assertEquals(3, wallpapers.size)
+            assertEquals("Drawn_wallpapers/wallpaper-97970", wallpapers[0].id)
+            assertEquals(ContentRating.SFW, wallpapers[0].contentRating)
+            assertEquals(ContentRating.SFW, wallpapers[1].contentRating)
+            assertEquals(ContentRating.SFW, wallpapers[2].contentRating)
+            assertTrue(
+                client.requests.any { it == "https://www.zastavki.com/eng/tag/Night/" },
+            )
+        }
+
+    @Test
+    fun aTagAlbumClassifiesGlamourCellsByTheirOwnPath() =
+        runTest {
+            configureWith(
+                mapOf(
+                    "https://www.zastavki.com/eng/tag/Bikini_girls/" to
+                        ok(
+                            """
+                            <a class="img-wrap" href="/rus/Girls/wallpaper-179901.htm" title="Девушка">
+                                <img src="/pictures/600x382/2014Girls_Beautiful_girl_in_a_red_dress_179901_33.jpg" alt="Beautiful girl in a red dress">
+                            </a>
+                            """.trimIndent(),
+                        ),
+                ),
+            )
+            val wallpapers = provider.albumWallpapers("tag/Bikini_girls").getOrThrow()
             assertEquals(ContentRating.SKETCHY, wallpapers[0].contentRating)
         }
 

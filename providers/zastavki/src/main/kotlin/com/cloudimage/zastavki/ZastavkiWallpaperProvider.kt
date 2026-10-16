@@ -21,27 +21,49 @@ import com.cloudimage.provider.api.WallpaperProvider
  *
  * ## Site model
  *
- * Zastavki is a category-first wallpaper catalogue, browsed exactly one
- * way: thirty-six top categories (Nature, Animals, Auto, Girls, …),
- * most of them split into subcategory shelves (Nature → Mountains,
- * Flowers, Waterfalls, …), each shelf a wallpaper grid paginating deep
- * — the album paradigm this host's v1.1.0 contract models. The site's
- * OWN search endpoint answers every query with "nothing found" (broken
- * for anonymous clients — verified from a real browser), so this
- * provider is honestly browse-only: the album UI is the whole
- * experience, exactly as on the site itself.
+ * Zastavki is a category-first wallpaper catalogue, browsed two ways:
+ * thirty-six top categories (Nature, Animals, Auto, Girls, …), most of
+ * them split into subcategory shelves (Nature → Mountains, Flowers,
+ * Waterfalls, …), each shelf a wallpaper grid paginating deep — the
+ * album paradigm this host's v1.1.0 contract models — and a tag index
+ * that turns out to be the site's only WORKING search surface.
  *
- * ## The image URL families — and the original
+ * ## The tag surface — search without the site's search
  *
- * The site's own image host serves derivable size families over one
- * path tail: `/pictures/286x180/{year}/{tail}_{code}.jpg` for grid
- * thumbs and `/pictures/originals/{year}/{tail}_.jpg` for the TRUE
- * original — the code segment simply dropped, the exact transform the
- * detail page's own `og:image` states, publicly served to every client
- * with no referer check (verified: a 6000x4000, 6.9 MB original). A
- * grid cell's thumbnail therefore discloses a working original, and
- * [details] upgrades the record with the page's authoritative
- * `og:image` URL, true pixel dimensions and uploader.
+ * The site's own search endpoint answers every anonymous query with
+ * "nothing found" (broken for years, verified from a real browser) —
+ * but `/rus/tag-list/` publishes a full tag index, and every tag slug
+ * states a real listing page `/eng/tag/{slug}/`: a wallpaper grid,
+ * eleven items per page, paginating blind exactly like the ranking
+ * routes. [ZastavkiTags] bakes that catalogue (1,809 English slugs,
+ * junk-filtered, live-checked), and everything search-shaped rides it:
+ * [search] walks the best-matching tag's grid, [searchAlbums] offers
+ * the top matches as albums the user can open as shelves,
+ * [suggestTags] autocompletes the search bar offline. A query that
+ * names no tag but names a CATEGORY ("nature", "girls") falls back to
+ * that category's own page-one grid; anything else is the honest empty
+ * page, never an error.
+ *
+ * ## The image URL families — the mobile markup first
+ *
+ * Every user-agent carrying "Android" earns the site's MOBILE markup,
+ * and this provider deliberately claims that identity on every fetch:
+ * the mobile grids state their thumbnails in the 600x382 preview
+ * family — twice the desktop variant's 286x180, the size the site
+ * itself serves its own phone visitors — as REAL, markup-stated URLs.
+ * Subcategory shelves and the flat category grids carry the year
+ * segment on recent uploads (the `originals/{year}/` sibling
+ * derives); the ranking routes and the TAG surfaces glue the batch
+ * year onto every file name (nothing derives — the 600x382 thumb
+ * itself stands in as the full URL until `details` upgrades it). The
+ * desktop markup's derivable-originals story is demonstrably WRONG
+ * for legacy items (live-measured: the `originals/{year}/` sibling of
+ * a 2012-batch thumb 404s while the true original lives elsewhere),
+ * so the honest full URL is always a real served file, which
+ * [details] then upgrades with the page's authoritative `og:image`
+ * original, true pixel dimensions and uploader. The parser tolerates
+ * BOTH markups (any `/pictures/{W}x{H}/` family), so a host that
+ * overrides the agent back still parses.
  *
  * ## The ranked feeds
  *
@@ -56,14 +78,16 @@ import com.cloudimage.provider.api.WallpaperProvider
  *
  * ## The site's own broken parts — mirrored honestly
  *
- * Two server-side quirks bound what this provider serves, exactly as
+ * Three server-side quirks bound what this provider serves, exactly as
  * they bound the site's own users: the TOP-category pagination is
  * 502-dead beyond page one (a flat category serves its first page of
- * eleven and no more — the walk stops at the first failed page), and
- * the `orderby=rating` lane 502s outright (Popular rides downloads).
- * Subcategory grids paginate without limit; this provider caps the
- * album walk at [MAX_ALBUM_PAGES] fetched pages of shelf, a politeness
- * bound the site's own shelf-crawling users never approach.
+ * eleven and no more — the category-backed search lane inherits the
+ * same limit), the `orderby=rating` lane 502s outright (Popular rides
+ * downloads), and unknown `orderby` values answer 200 with an EMPTY
+ * shell (a trap, not a lane). Subcategory grids paginate without
+ * limit; this provider caps the album walk at [MAX_ALBUM_PAGES]
+ * fetched pages of shelf, a politeness bound the site's own
+ * shelf-crawling users never approach.
  *
  * ## Content rating
  *
@@ -71,15 +95,18 @@ import com.cloudimage.provider.api.WallpaperProvider
  * otherwise tame site with no server-side purity toggle, so the
  * provider declares SKETCHY and classifies every item by its own
  * category path — an item from a glamour shelf is SKETCHY, everything
- * else SFW, and the host's rating switch filters precisely.
+ * else SFW, and the host's rating switch filters precisely. Tag grids
+ * mix categories freely, so the classification rides each item's own
+ * path there too.
  *
  * ## Politeness
  *
  * The site's robots.txt keeps generic crawlers off its query-string
  * routes; every fetch this provider makes happens on an explicit user
- * action — a feed page, an album open, a detail view — one request per
- * page, with deep-walk caps. No challenge machinery is ever needed:
- * the site serves plain HTML to every client, datacenter or phone.
+ * action — a feed page, an album open, a search, a detail view — one
+ * request per page, with deep-walk caps. No challenge machinery is
+ * ever needed: the site serves plain HTML to every client, datacenter
+ * or phone.
  */
 class ZastavkiWallpaperProvider : WallpaperProvider {
     private var httpClient: ProviderHttpClient? = null
@@ -88,9 +115,9 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         ProviderMeta(
             id = ID,
             name = "Zastavki",
-            versionName = "1.0.0",
+            versionName = "1.1.0",
             author = "Cloudimage",
-            description = "Free wallpapers from zastavki.com - scraped, keyless.",
+            description = "Free wallpapers from zastavki.com - keyless scraper with tag search.",
             // Glamour shelves mix into the catalogue with no anonymous
             // purity toggle; SKETCHY is the honest floor, and every item
             // is classified by its own category path so the host's
@@ -99,7 +126,13 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         )
 
     override val capabilities: Set<Capability> =
-        setOf(Capability.POPULAR, Capability.LATEST, Capability.ALBUMS)
+        setOf(
+            Capability.POPULAR,
+            Capability.LATEST,
+            Capability.ALBUMS,
+            Capability.SEARCH,
+            Capability.TAGS,
+        )
 
     override fun configure(
         client: ProviderHttpClient,
@@ -125,17 +158,42 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         }
 
     /**
-     * The site's own search endpoint answers every anonymous query with
-     * "nothing found" — verified from a real browser — so the honest
-     * answer is an empty page, never an error: the host renders "no
-     * results" and the album UI (this provider's real search surface)
-     * carries the finding duty.
+     * Real search over the tag surface: the best-matching tag's own
+     * grid, walked blind (a page beyond the tag's last answers 404 —
+     * the walk's end, not an error) up to [MAX_SEARCH_PAGES]. A query
+     * naming no tag but naming a category rides that category's
+     * page-one grid — the top-category pagination is 502-dead beyond
+     * page one server-side, so the category lane states no next page,
+     * the site's own limit mirrored honestly. Anything else is the
+     * honest empty page: the host renders "no results", never an error.
      */
     override suspend fun search(
         query: String,
         page: Int,
         filters: Filters,
-    ): Result<Page> = Result.success(Page(emptyList(), nextPage = null))
+    ): Result<Page> =
+        runCatching {
+            if (page < 1 || page > MAX_SEARCH_PAGES) {
+                return@runCatching Page(emptyList(), nextPage = null)
+            }
+            val tag = ZastavkiTags.bestMatch(query)
+            if (tag != null) {
+                return@runCatching tagSearchPage(tag, page)
+            }
+            categorySearchPage(query, page) ?: Page(emptyList(), nextPage = null)
+        }
+
+    /**
+     * Search-bar autocomplete from the baked catalogue — offline, no
+     * request fired, exactly the contract's "suggestions come from the
+     * source the user is already searching" gate.
+     */
+    override suspend fun suggestTags(query: String): Result<List<String>> =
+        Result.success(
+            ZastavkiTags
+                .topMatches(query, TAG_SUGGESTIONS)
+                .map(ZastavkiTags::labelOf),
+        )
 
     /**
      * The home shelves: the two ranked walks. Cheap and offline, as the
@@ -205,9 +263,11 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
     /**
      * The Home tab — a curated shelf of the site's own subcategory
      * albums (the ones its navigation marks "hot" and the deep shelves
-     * the catalogue is known for), covers harvested from the live tile
-     * markup, baked in so the tab renders before the first network
-     * byte. [albums] fetches the live truth for every category.
+     * the catalogue is known for) plus a row of showcase TAG albums
+     * (Sky, Night, Ocean, …) that make the tag surface discoverable,
+     * covers harvested from the live tag grids, baked in so the tab
+     * renders before the first network byte. [albums] fetches the live
+     * truth for every category.
      */
     override suspend fun homeAlbums(): Result<List<Album>> = Result.success(HOME_ALBUMS)
 
@@ -251,18 +311,24 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         }
 
     /**
-     * The wallpapers of one album — a subcategory shelf or a flat
-     * category's page-one grid — walked up to [MAX_ALBUM_PAGES] fetched
-     * pages in the site's own newest-first order. The walk stops at the
-     * first page the site refuses (flat categories 502 beyond page one
-     * — the server's own limit, mirrored honestly) or serves empty.
+     * The wallpapers of one album — a subcategory shelf, a flat
+     * category's page-one grid, or a TAG album (`tag/{slug}`, the
+     * search surface's shelf form) whose items come from every
+     * category at once and are therefore read UNSCOPED. Every walk
+     * runs up to [MAX_ALBUM_PAGES] fetched pages in the site's own
+     * newest-first order, and stops at the first page the site refuses
+     * (flat categories 502 beyond page one — the server's own limit,
+     * mirrored honestly) or serves empty.
      */
     override suspend fun albumWallpapers(albumId: String): Result<List<Wallpaper>> =
         runCatching {
+            // A tag's grid mixes every category: no owning path scopes it.
+            val owningPath = if (albumId.startsWith("tag/")) null else albumId
             val collected = mutableListOf<Wallpaper>()
             for (pageNumber in 1..MAX_ALBUM_PAGES) {
                 val page =
-                    listingPage(albumId, pageNumber, stopOnRefusal = true) ?: break
+                    listingPage(albumId, pageNumber, stopOnRefusal = true, owningPath = owningPath)
+                        ?: break
                 if (page.wallpapers.isEmpty()) break
                 collected += page.wallpapers
             }
@@ -270,10 +336,24 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         }
 
     /**
-     * Album search rides the site's search, which answers nothing —
-     * the honest empty list, exactly like [search].
+     * Album search over the baked tag catalogue: the top matches as
+     * albums the user opens as shelves (`tag/{slug}` ids). Showcase
+     * tags carry their harvested cover; the rest render the album
+     * card's own placeholder until opened.
      */
-    override suspend fun searchAlbums(query: String): Result<List<Album>> = Result.success(emptyList())
+    override suspend fun searchAlbums(query: String): Result<List<Album>> =
+        Result.success(
+            ZastavkiTags
+                .topMatches(query, TAG_ALBUM_RESULTS)
+                .map { slug ->
+                    Album(
+                        id = "tag/$slug",
+                        providerId = ID,
+                        title = ZastavkiTags.labelOf(slug),
+                        coverUrl = SHOWCASE_TAG_COVERS[slug].orEmpty(),
+                    )
+                },
+        )
 
     // ---------------------------------------------------------------- feed
 
@@ -299,9 +379,60 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
     }
 
     /**
+     * One page of a tag's grid — the search surface's walk. Blind
+     * pagination like the ranking routes: the site states no bar, a
+     * 404 past the tag's last page is the walk's end (an empty page,
+     * never an error), and any non-empty page promises the next up to
+     * the [MAX_SEARCH_PAGES] cap.
+     */
+    private suspend fun tagSearchPage(
+        slug: String,
+        page: Int,
+    ): Page {
+        val path = if (page == 1) "tag/$slug/" else "tag/$slug/$page/"
+        val response = get("$BASE_URL/eng/$path")
+        if (!response.isSuccessful) {
+            return Page(emptyList(), nextPage = null)
+        }
+        val items = ZastavkiParser.parseGrid(response.bodyText, owningPath = null)
+        val nextPage =
+            if (items.isNotEmpty() && page < MAX_SEARCH_PAGES) page + 1 else null
+        return Page(items.map(::gridWallpaper), nextPage = nextPage)
+    }
+
+    /**
+     * The category-name fallback lane: a query that names no tag but
+     * names a category ("nature", "girls") rides that category's own
+     * page-one grid. Null when the query names no category either. The
+     * top-category pagination is 502-dead beyond page one server-side,
+     * so this lane states no next page — the site's own limit, mirrored
+     * honestly.
+     */
+    private suspend fun categorySearchPage(
+        query: String,
+        page: Int,
+    ): Page? {
+        val wanted = query.trim().lowercase()
+        val category =
+            CATEGORIES.firstOrNull { it.id.lowercase() == wanted || it.name.lowercase() == wanted }
+                ?: return null
+        if (page > 1) return Page(emptyList(), nextPage = null)
+        val response = get("$BASE_URL/eng/${category.id}/")
+        if (!response.isSuccessful) {
+            // A flat category's own 502-or-worse refusal: empty, not an
+            // error — the query simply has nothing more to say.
+            return Page(emptyList(), nextPage = null)
+        }
+        val items = ZastavkiParser.parseGrid(response.bodyText, owningPath = category.id)
+        return Page(items.map(::gridWallpaper), nextPage = null)
+    }
+
+    /**
      * One page of an album listing — `null` when the site refuses the
      * page (the flat-category 502 — [stopOnRefusal]) or serves
-     * nothing. The subcategory bar's deepest number bounds
+     * nothing. A tag album passes [owningPath] `null` (its grid mixes
+     * every category); a shelf passes its own path so site-wide
+     * furniture stays out. The subcategory bar's deepest number bounds
      * `nextPage` when the walk wants it; the album walk ignores
      * pagination signals and simply collects pages.
      */
@@ -309,6 +440,7 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         path: String,
         page: Int,
         stopOnRefusal: Boolean,
+        owningPath: String?,
     ): Page? {
         val paged = if (page == 1) "$BASE_URL/eng/$path/" else "$BASE_URL/eng/$path/$page/"
         val response = get(paged)
@@ -316,7 +448,7 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
             if (stopOnRefusal) return null
             throw httpError(response.statusCode)
         }
-        val items = ZastavkiParser.parseGrid(response.bodyText, owningPath = path)
+        val items = ZastavkiParser.parseGrid(response.bodyText, owningPath = owningPath)
         val bar = ZastavkiParser.parseMaxPage(response.bodyText, path)
         val nextPage =
             if (bar != null && bar > page && page < MAX_RANKING_PAGES) page + 1 else null
@@ -326,12 +458,16 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
     // ------------------------------------------------------------- mapping
 
     /**
-     * A grid cell to a wallpaper: the 286x180 thumbnail as
-     * [Wallpaper.thumbUrl] and the original — the thumbnail's
-     * size-family sibling on `originals`, a real publicly served file —
-     * as [Wallpaper.fullUrl]. Dimensions are deliberately absent from
-     * listings (the site states none there); [details] is where the
-     * TRUE resolution arrives.
+     * A grid cell to a wallpaper: the markup-stated preview thumbnail
+     * (the 600x382 family under the mobile identity this provider
+     * rides) as [Wallpaper.thumbUrl], and as [Wallpaper.fullUrl] the
+     * derivable `originals/{year}/` sibling where the thumb carries
+     * the year segment (shelves, flat category grids), the thumb
+     * itself otherwise (ranking and tag surfaces glue the batch year
+     * onto every name) — a real served 600x382 file either way, which
+     * [details] upgrades to the TRUE original. Dimensions are
+     * deliberately absent from listings (the site states none there);
+     * [details] is where the TRUE resolution arrives.
      */
     private fun gridWallpaper(item: ZastavkiParser.GridItem): Wallpaper =
         Wallpaper(
@@ -362,14 +498,21 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         IllegalStateException("zastavki.com refused the exchange (HTTP $statusCode)")
 
     /**
-     * Every fetch rides a DESKTOP Chrome identity — the sanctioned
-     * per-request override. Not cosmetic: the site serves a DIFFERENT
-     * grid to user-agents carrying "Android" (the host's own UA does) —
-     * a mobile variant whose ranking files glue the year onto the file
-     * name and disclose no derivable original. The parser tolerates
-     * that variant as a fallback; this identity asks for the desktop
-     * markup the site's own desktop users get, where every thumb
-     * carries the year segment and the originals family is derivable.
+     * Every fetch rides an ANDROID-Chrome identity — the sanctioned
+     * per-request override. Not cosmetic, and deliberately the OPPOSITE
+     * of a desktop claim: user-agents carrying "Android" earn the
+     * site's MOBILE markup, whose grids state their thumbnails in the
+     * real 600x382 preview family (twice the desktop 286x180) as
+     * markup-stated URLs — shelves and flat category grids with the
+     * year segment on recent uploads (originals derivable), the
+     * ranking routes and tag surfaces with the year glued onto every
+     * name (the thumb itself stands in as the full URL). The desktop
+     * markup's derivable originals are demonstrably WRONG for legacy
+     * items (their `originals/{year}/` sibling 404s — live-measured),
+     * while the mobile fallback is a real file for every item, and
+     * [details] upgrades to the page's authoritative `og:image`
+     * original regardless. The parser accepts BOTH markups, so a host
+     * overriding the agent back still parses.
      */
     private suspend fun get(url: String) =
         httpClient?.get(url, mapOf("User-Agent" to USER_AGENT))
@@ -380,10 +523,12 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         const val ID = "cloudimage.zastavki"
         const val BASE_URL = "https://www.zastavki.com"
 
-        /** The desktop-Chrome identity every fetch rides — see [get]. */
+        /**
+         * The Android-Chrome identity every fetch rides — see [get].
+         */
         const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
         /** The all-time most-downloaded walk — the popular feed. */
         const val POPULAR_PATH = "/?r=site%2Flist&orderby=downloads"
@@ -394,6 +539,13 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
         /** Deep-walk caps — politeness bounds on user-triggered fetches. */
         const val MAX_RANKING_PAGES = 100
         const val MAX_ALBUM_PAGES = 4
+
+        /** The blind search walk's page cap (eleven results per page). */
+        const val MAX_SEARCH_PAGES = 30
+
+        /** How many tag suggestions and tag albums a query surfaces. */
+        const val TAG_SUGGESTIONS = 8
+        const val TAG_ALBUM_RESULTS = 8
 
         /**
          * The site's thirty-six top categories, as its own English
@@ -443,7 +595,9 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
          * The Home tab's curated shelf — subcategory albums the site
          * itself features (its navigation's "hot" marks) plus the deep
          * shelves the catalogue is known for, covers harvested from the
-         * live tile markup (October 2026).
+         * live tile markup (October 2026), and a row of showcase TAG
+         * albums whose covers were harvested from the live tag grids —
+         * the tag surface made discoverable on the Home tab itself.
          */
         val HOME_ALBUMS: List<Album> =
             listOf(
@@ -484,6 +638,64 @@ class ZastavkiWallpaperProvider : WallpaperProvider {
                     "Children",
                     "$BASE_URL/pictures/286x180/2014/People___Children_The_girl_at_the_festival_084451_32.jpg",
                 ),
+                Album(
+                    "tag/Sky",
+                    ID,
+                    "Sky",
+                    "$BASE_URL/pictures/600x382/2014Cities_A_city_of_skyscrapers_083208_33.jpg",
+                ),
+                Album(
+                    "tag/Night",
+                    ID,
+                    "Night",
+                    "$BASE_URL/pictures/600x382/2015Drawn_wallpapers_Black_cat_moon_at_night_097970_33.jpg",
+                ),
+                Album(
+                    "tag/Ocean",
+                    ID,
+                    "Ocean",
+                    "$BASE_URL/pictures/600x382/2014Nature___Beach_____The_lagoon_beach_083308_33.jpg",
+                ),
+                Album(
+                    "tag/Snow",
+                    ID,
+                    "Snow",
+                    "$BASE_URL/pictures/600x382/2014Animals___Wild_cats_____Snow_leopard_is_sitting_in_the_snow_083447_33.jpg",
+                ),
+                Album(
+                    "tag/Galaxy",
+                    ID,
+                    "Galaxy",
+                    "$BASE_URL/pictures/600x382/2016Space_The_galaxy_in_the_form_of_a_sombrero_102800_33.jpg",
+                ),
+                Album(
+                    "tag/Dubai",
+                    ID,
+                    "Dubai",
+                    "$BASE_URL/pictures/600x382/2014Cities_____Skyscrapers_in_Dubai_085454_33.jpg",
+                ),
+                Album(
+                    "tag/Pokemon",
+                    ID,
+                    "Pokemon",
+                    "$BASE_URL/pictures/600x382/2013Fantasy__039078_33.jpg",
+                ),
+                Album(
+                    "tag/Coffee",
+                    ID,
+                    "Coffee",
+                    "$BASE_URL/pictures/600x382/2014Food___Drinks_Coffee_machine_083779_33.jpg",
+                ),
             )
+
+        /**
+         * The showcase tags' harvested covers — the tag albums the Home
+         * tab carries, reused wherever a tag surfaces without its own
+         * cover (album search results).
+         */
+        val SHOWCASE_TAG_COVERS: Map<String, String> =
+            HOME_ALBUMS
+                .filter { it.id.startsWith("tag/") }
+                .associate { it.id.removePrefix("tag/") to it.coverUrl }
     }
 }
