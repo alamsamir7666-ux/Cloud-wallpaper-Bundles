@@ -30,9 +30,7 @@ import org.junit.Test
  * from a fresh instance — ride the same fake, as do the v1.1.2
  * additions: the MOBILE listing markup (the same 24-cell grid with no
  * pagination bar, whose full pages must keep the walk going by
- * themselves) and the overlap guard's quiet ends. The v1.1.3 additions
- * ride it too: the per-word adult classification of compound tag rows
- * and the full entity decoding of tag rows.
+ * themselves) and the overlap guard's quiet ends.
  */
 class WallhereWallpaperProviderTest {
     private val provider = WallhereWallpaperProvider()
@@ -44,6 +42,7 @@ class WallhereWallpaperProviderTest {
      */
     private class FakeClient : ProviderHttpClient {
         val requests = mutableListOf<String>()
+        val requestHeaders = mutableListOf<Map<String, String>>()
         var routes: Map<String, ProviderHttpResponse> = emptyMap()
 
         override suspend fun get(
@@ -51,6 +50,7 @@ class WallhereWallpaperProviderTest {
             headers: Map<String, String>,
         ): ProviderHttpResponse {
             requests += url
+            requestHeaders += headers
             return routes.entries
                 .firstOrNull { (prefix, _) -> url.startsWith(prefix) }
                 ?.value
@@ -143,6 +143,14 @@ class WallhereWallpaperProviderTest {
         """.trimIndent()
 
     /**
+     * A page-two listing whose cells are FRESH (ids no earlier page
+     * served) under a last-page bar — the shape every URL-dialect test
+     * needs for its second page, now that the first continuation must
+     * deliver fresh wallpapers or fail by name (v1.1.3).
+     */
+    private val freshPageTwo = "${mobileGridOf(24, firstId = 2271000)}\n$lastPageBar"
+
+    /**
      * The wallpaper page's definitive record as the live page states
      * it: the meta description whose tail carries the ORIGINAL's
      * resolution, the uploader's profile link, the `contentURL` display
@@ -224,18 +232,16 @@ class WallhereWallpaperProviderTest {
             assertEquals(ContentRating.SFW, wallpapers.first { it.id == "1579551" }.contentRating)
         }
 
-    /**
-     * The compound adult rows the site's own vocabulary carries — "panties
-     * down" and "Lingerie Football League" straight from the suggestion
-     * filter's own doc, plus a hyphenated "anime-hentai" — must classify
-     * NSFW (v1.1.3: v1.1.2 matched whole tag strings only and let every
-     * one of these through as SFW), while innocent words that merely
-     * CONTAIN an adult word ("bass", "sea grass") stay SFW: the check is
-     * per WORD, never substring.
-     */
     @Test
     fun multiWordAdultRowsAreClassifiedNsfw() =
         runTest {
+            // The compound adult rows the site's own vocabulary carries — "panties
+            // down" and "Lingerie Football League" straight from the suggestion
+            // filter's own doc, plus a hyphenated "anime-hentai" — must classify
+            // NSFW (v1.1.4: v1.1.2 matched whole tag strings only and let every
+            // one of these through as SFW), while innocent words that merely
+            // CONTAIN an adult word ("bass", "sea grass") stay SFW: the check is
+            // per WORD, never substring.
             val compoundGrid =
                 listOf(
                     "9000001" to "panties down,bedroom,woman",
@@ -258,25 +264,14 @@ class WallhereWallpaperProviderTest {
         }
 
     @Test
-    fun tagRowsDropSiteFurnitureAndCap() =
-        runTest {
-            configureWith(mapOf("https://wallhere.com/en/wallpapers?order=popular" to ok(listing)))
-            val wallpapers = provider.popular(1, Filters.None).getOrThrow().wallpapers
-            val space = wallpapers.first { it.id == "1579551" }
-            assertEquals(listOf("space", "galaxy", "planet", "fantasy", "landscape"), space.tags)
-        }
-
-    /**
-     * Tag rows decode their HTML entities before they become tags
-     * (v1.1.3): decimal and hex code points ("café", "città"), the
-     * apostrophe family ("rock'n'roll" from `&#x27;` and `&#39;`), and a
-     * named ampersand ("salt & pepper") — while a DOUBLE-encoded entity
-     * (`T&amp;#39;shirt`) stays the literal text `T&#39;shirt` it honestly
-     * is, never decoded twice.
-     */
-    @Test
     fun tagRowsDecodeHtmlEntities() =
         runTest {
+            // Tag rows decode their HTML entities before they become tags
+            // (v1.1.4): decimal and hex code points ("café", "città"), the
+            // apostrophe family ("rock'n'roll" from `&#x27;` and `&#39;`), and a
+            // named ampersand ("salt & pepper") — while a DOUBLE-encoded entity
+            // (`T&amp;#39;shirt`) stays the literal text `T&#39;shirt` it honestly
+            // is, never decoded twice.
             val entityRow = "caf&#233;,citt&#xE0;,rock&#x27;n&#x27;roll,salt &amp; pepper,T&amp;#39;shirt"
             val entityGrid =
                 """
@@ -293,12 +288,21 @@ class WallhereWallpaperProviderTest {
         }
 
     @Test
+    fun tagRowsDropSiteFurnitureAndCap() =
+        runTest {
+            configureWith(mapOf("https://wallhere.com/en/wallpapers?order=popular" to ok(listing)))
+            val wallpapers = provider.popular(1, Filters.None).getOrThrow().wallpapers
+            val space = wallpapers.first { it.id == "1579551" }
+            assertEquals(listOf("space", "galaxy", "planet", "fantasy", "landscape"), space.tags)
+        }
+
+    @Test
     fun deepPagesAppendTheQueryDialect() =
         runTest {
             val client =
                 configureWith(
                     mapOf(
-                        "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok("$grid\n$lastPageBar"),
+                        "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok(freshPageTwo),
                         "https://wallhere.com/en/wallpapers?order=popular" to ok(listing),
                     ),
                 )
@@ -386,13 +390,14 @@ class WallhereWallpaperProviderTest {
         }
 
     @Test
-    fun barlessEmptyContinuationsEndQuietly() =
+    fun barlessEmptyPageTwoIsANamedFailure() =
         runTest {
-            // No bar, no grid, page two: page one parsed fine, so the
-            // markup is intact — an empty continuation is the honest end
-            // of a listing that ran out, not a source failure (v1.1.1
-            // threw here, which would have painted every bar-less
-            // listing's true end as an error).
+            // No bar, no grid, page two: page one served a FULL page, so
+            // this is not a listing that ran out — it is markup the
+            // parser no longer reads answering the first continuation
+            // (v1.1.3). v1.1.2 ended quietly here, which is exactly how
+            // a broken continuation dialect hid as "exactly 24 items,
+            // no error" in the field; the failure now carries its name.
             configureWith(
                 mapOf(
                     "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok("<html><body></body></html>"),
@@ -400,20 +405,21 @@ class WallhereWallpaperProviderTest {
                 ),
             )
             provider.popular(1, Filters.None).getOrThrow()
-            provider.popular(2, Filters.None).getOrThrow().also { page ->
-                assertTrue(page.wallpapers.isEmpty())
-                assertNull(page.nextPage)
-            }
+            val failure = provider.popular(2, Filters.None).exceptionOrNull()
+            assertTrue(failure is IllegalStateException)
+            assertTrue(failure!!.message!!.contains("carried no wallpapers the parser recognizes"))
         }
 
     @Test
-    fun clampedContinuationsEndQuietlyWithoutDuplicates() =
+    fun pageTwoRepeatsPageOneIsANamedFailure() =
         runTest {
-            // The site clamped a too-deep request to its last page: page
-            // two repeats page one's cells verbatim. The walk ends with
-            // NOTHING appended — duplicates never reach the host's keyed
-            // grids, which is the crash v1.1.1's guards were built
-            // around and the app has no defense against.
+            // Page two repeating page one verbatim is not a clamp — no
+            // listing this site serves is one page deep when its first
+            // page was FULL. It is the page parameter not advancing on
+            // this connection (the mobile view ignoring it), and v1.1.3
+            // names it: the field report then says WHY the walk stopped
+            // instead of merely that it did. Deeper repeats stay quiet
+            // clamp-ends (see deepClampedContinuationsStillEndQuietly).
             configureWith(
                 mapOf(
                     "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok(mobileGridOf(24)),
@@ -421,10 +427,60 @@ class WallhereWallpaperProviderTest {
                 ),
             )
             provider.popular(1, Filters.None).getOrThrow()
-            provider.popular(2, Filters.None).getOrThrow().also { page ->
+            val failure = provider.popular(2, Filters.None).exceptionOrNull()
+            assertTrue(failure is IllegalStateException)
+            assertTrue(failure!!.message!!.contains("repeated page 1's wallpapers"))
+        }
+
+    @Test
+    fun deepClampedContinuationsStillEndQuietly() =
+        runTest {
+            // The honest clamp shape: pages one and two served their
+            // fresh twenty-four, page three repeats page two — the walk
+            // ended one page too deep, nothing new arrives, and the walk
+            // ends with NOTHING appended. The page-2 honesty rules leave
+            // this branch exactly as quiet as v1.1.2 kept it.
+            configureWith(
+                mapOf(
+                    "https://wallhere.com/en/wallpapers?order=popular&page=3" to ok(mobileGridOf(24, firstId = 3000025)),
+                    "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok(mobileGridOf(24, firstId = 3000025)),
+                    "https://wallhere.com/en/wallpapers?order=popular" to ok(mobileGridOf(24)),
+                ),
+            )
+            provider.popular(1, Filters.None).getOrThrow()
+            provider.popular(2, Filters.None).getOrThrow()
+            provider.popular(3, Filters.None).getOrThrow().also { page ->
                 assertTrue(page.wallpapers.isEmpty())
                 assertNull(page.nextPage)
             }
+        }
+
+    @Test
+    fun everyDocumentFetchCarriesTheDesktopIdentity() =
+        runTest {
+            // v1.1.3: every document fetch claims a desktop Chrome agent
+            // through the facade's sanctioned per-request User-Agent
+            // override — the site serves mobile agents the bar-less
+            // infinite-scroll dialect, and on a phone every host fetch
+            // lane is mobile or Android-branded without it. The literal
+            // is repeated here on purpose: a UA change should have to
+            // walk through this assertion too.
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://wallhere.com/en/wallpapers?order=popular" to ok(listing),
+                        "https://wallhere.com/en/wallpaper/2270942" to ok(detailPage),
+                    ),
+                )
+            provider.popular(1, Filters.None).getOrThrow()
+            provider.details("2270942").getOrThrow()
+
+            assertTrue(
+                client.requestHeaders.all {
+                    it["User-Agent"] ==
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                },
+            )
         }
 
     @Test
@@ -579,7 +635,7 @@ class WallhereWallpaperProviderTest {
             val client =
                 configureWith(
                     mapOf(
-                        "https://wallhere.com/en/wallpapers?q=black+myth&page=2" to ok("$grid\n$lastPageBar"),
+                        "https://wallhere.com/en/wallpapers?q=black+myth&page=2" to ok(freshPageTwo),
                         "https://wallhere.com/en/wallpapers?q=black+myth" to ok(listing),
                     ),
                 )
@@ -671,7 +727,7 @@ class WallhereWallpaperProviderTest {
             val client =
                 configureWith(
                     mapOf(
-                        "https://wallhere.com/en/wallpapers?order=popular&NSFW=off&page=2" to ok("$grid\n$lastPageBar"),
+                        "https://wallhere.com/en/wallpapers?order=popular&NSFW=off&page=2" to ok(freshPageTwo),
                         "https://wallhere.com/en/wallpapers?order=popular&NSFW=off" to ok(listing),
                     ),
                 )

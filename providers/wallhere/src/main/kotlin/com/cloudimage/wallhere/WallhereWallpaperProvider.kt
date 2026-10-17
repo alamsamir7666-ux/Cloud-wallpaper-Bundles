@@ -90,7 +90,7 @@ import java.net.URLEncoder
  * and the host's rating switch filters it exactly as it does Wallhaven's
  * purity labels. Everything else is SFW — and with the `NSFW=off`
  * mapping above, SFW-only users now get a server-filtered feed too. The
- * adult-word check is per WORD of each tag (v1.1.3: v1.1.2 matched whole
+ * adult-word check is per WORD of each tag (v1.1.4: v1.1.2 matched whole
  * tag strings only and let compound rows like "panties down" or
  * "Lingerie Football League" through as SFW) — the SAME check the
  * suggestion filter below already rode, so the content filter and the
@@ -102,8 +102,22 @@ import java.net.URLEncoder
  * path (interactive Turnstile), while the image CDN serves every client
  * unchallenged. The host's HTTP facade already owns that problem
  * (per-host clearances, the WebView document lane, and since app
- * v1.2.19 the in-app browser escape hatch) — this plugin sends its
- * requests bare and parses what comes back.
+ * v1.2.19 the in-app browser escape hatch) — this plugin parses
+ * whatever comes back. Its requests are bare of cookies but not of
+ * identity (v1.1.4): the site serves its listings to MOBILE agents in
+ * the bar-less infinite-scroll dialect (v1.1.2's field report), and on
+ * a phone every fetch lane the host owns carries a mobile or
+ * Android-branded agent — the descriptive host default contains
+ * "Android", and the WebView document lane wears the device's own
+ * mobile Chrome. Every document fetch therefore claims a DESKTOP
+ * Chrome agent through the facade's sanctioned per-request User-Agent
+ * override — the one lane the host honors verbatim — so an unchallenged
+ * plain request comes back in the desktop dialect, with the pagination
+ * bar the walk was built on. A replay riding a WebView-earned
+ * clearance still travels under the clearance's own agent (clearance
+ * binding wins, per the facade contract), and when that leaves page
+ * two repeating page one, the first-continuation honesty below names
+ * it instead of stopping in silence.
  *
  * ## Contract mapping
  *
@@ -160,6 +174,17 @@ import java.net.URLEncoder
  * appended — duplicates never reach keyed grids. When a bar IS
  * present it still governs, exactly as before.
  *
+ * v1.1.4 makes the FIRST continuation prove itself. A page two that
+ * repeats page one's wallpapers, or that answers with no grid the
+ * parser reads, is never an honest end on a site whose pages are
+ * fixed at twenty-four: page one served a full page, so a dead page
+ * two means the continuation dialect is broken on this connection —
+ * the mobile view ignoring the page parameter, or serving markup the
+ * parser no longer reads — and it now THROWS, naming the shape, so a
+ * field report says WHY the walk stopped instead of merely that it
+ * did. Deeper pages keep the quiet clamp-end: a listing that ran out
+ * is allowed to simply end.
+ *
  * ## Politeness
  *
  * The site's robots.txt excludes only its login and signup paths; every
@@ -174,7 +199,7 @@ class WallhereWallpaperProvider : WallpaperProvider {
         ProviderMeta(
             id = ID,
             name = "WallHere",
-            versionName = "1.1.3",
+            versionName = "1.1.4",
             author = "Cloudimage",
             description = "Free HD wallpapers from wallhere.com - scraped, keyless, tag-searchable.",
             // The site mixes adult-tagged content into its default feeds;
@@ -403,6 +428,17 @@ class WallhereWallpaperProvider : WallpaperProvider {
                 // footer forever.
                 throw IllegalStateException("wallhere's page $page carried no recognizable wallpapers")
             }
+            if (page == 2) {
+                // v1.1.4: the FIRST continuation can never be an honest
+                // empty end on this site's fixed-size pages — page one
+                // served a full twenty-four, so a bar-less page two
+                // with no grid is markup this parser no longer reads.
+                // Name it; the quiet end stays reserved for deeper
+                // pages, where a listing is allowed to run out.
+                throw IllegalStateException(
+                    "wallhere's page 2 carried no wallpapers the parser recognizes — the mobile view answered the continuation with different markup",
+                )
+            }
             // A bar-less continuation with no grid (the mobile markup):
             // page one parsed fine, so the markup is intact — an empty
             // page N is the honest end of a listing that ran out (v1.1.2 —
@@ -419,6 +455,18 @@ class WallhereWallpaperProvider : WallpaperProvider {
         val seen = seenIdsFor(listingKey)
         val fresh = if (page == 1) items else items.filter { it.id !in seen }
         if (page > 1 && fresh.isEmpty()) {
+            if (page == 2) {
+                // v1.1.4: the first continuation repeating page one
+                // verbatim is not a clamp — no listing this site serves
+                // is one page deep when its first page was FULL. It is
+                // the page parameter not advancing on this connection
+                // (the mobile view ignoring it), and it is named so the
+                // field report carries the reason. Deeper repeats stay
+                // quiet clamp-ends.
+                throw IllegalStateException(
+                    "wallhere's page 2 repeated page 1's wallpapers — either the listing has only one page or this connection's mobile view ignores the page parameter",
+                )
+            }
             return Page(emptyList(), nextPage = null)
         }
         rememberSeenIds(
@@ -477,12 +525,12 @@ class WallhereWallpaperProvider : WallpaperProvider {
     /**
      * An item's rating, from the site's own vocabulary: NSFW when the
      * tag row carries an adult WORD — checked per word, so multi-word
-     * rows ("panties down", "Lingerie Football League") classify
-     * exactly like the bare vocabulary (v1.1.3: v1.1.2 matched whole
-     * tag strings only and let every compound adult row through as
-     * SFW) — SFW otherwise. The host's rating switch does the filtering;
-     * this classification is what makes it honest for a source whose
-     * server-side switch is only asked on SFW-only requests.
+     * rows ("panties down", "Lingerie Football League") classify exactly
+     * like the bare vocabulary while innocent words ("grass", "bass")
+     * never trip their shorter selves. The host's rating switch does the
+     * filtering; this classification is what makes it honest for a
+     * source whose server-side switch is only asked on SFW-only
+     * requests.
      */
     private fun ratingFor(tags: List<String>): ContentRating =
         if (tags.any(::isAdultTag)) {
@@ -601,7 +649,7 @@ class WallhereWallpaperProvider : WallpaperProvider {
     private fun searchPath(query: String): String = "/en/wallpapers?q=${encode(query)}"
 
     private suspend fun get(url: String): ProviderHttpResponse =
-        httpClient?.get(url)
+        httpClient?.get(url, DOCUMENT_HEADERS)
             ?: error("configure() was not called")
 
     private fun httpError(statusCode: Int): IllegalStateException = IllegalStateException("wallhere answered HTTP $statusCode")
@@ -623,6 +671,22 @@ class WallhereWallpaperProvider : WallpaperProvider {
 
         /** The site's fixed page size — a full page of fresh cells means more exists. */
         const val FULL_PAGE = 24
+
+        /**
+         * The desktop Chrome identity every document fetch claims. The
+         * site serves its listings to mobile agents in the bar-less
+         * infinite-scroll dialect, and every fetch lane the host owns on
+         * a phone is mobile or Android-branded — so the provider asks
+         * for the desktop markup explicitly, through the facade's
+         * sanctioned per-request User-Agent override (the header rides
+         * on top of the host's own; a WebView-earned clearance still
+         * binds its own agent on replays, per the facade contract).
+         */
+        const val DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+        /** The headers every document fetch rides: the desktop identity alone. */
+        val DOCUMENT_HEADERS = mapOf("User-Agent" to DESKTOP_USER_AGENT)
 
         /** How many listings' seen-id sets the overlap guard remembers. */
         const val SEEN_LISTINGS_LIMIT = 16

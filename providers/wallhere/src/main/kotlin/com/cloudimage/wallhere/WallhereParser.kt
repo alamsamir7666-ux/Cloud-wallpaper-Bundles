@@ -361,7 +361,7 @@ internal object WallhereParser {
 
     /**
      * Decodes entities and collapses whitespace — the attribute miner's
-     * soap (v1.1.3). ONE single left-to-right pass: every entity resolves
+     * soap (v1.1.4). ONE single left-to-right pass: every entity resolves
      * independently, so a double-encoded `&amp;#39;` stays the literal
      * text `&#39;` (v1.1.2's chained replaces decoded it twice), while
      * plain text that merely looks entity-shaped ("AT&T", "rock&roll")
