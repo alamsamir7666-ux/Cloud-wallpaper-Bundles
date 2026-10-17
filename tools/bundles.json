@@ -2,11 +2,12 @@
   {
     "id": "wallpapers",
     "name": "Essential Wallpapers",
-    "description": "The must-have wallpaper sources for Cloudimage, curated in one pack - WallpaperFlare's HD, 2K, 4K and 5K catalogue, WallpapersDen's HD, 4K, 5K and 8K shelves, plus Zastavki's thirty-six browse-first shelves, and it grows with every source we add.",
+    "description": "The must-have wallpaper sources for Cloudimage, curated in one pack - WallpaperFlare's HD, 2K, 4K and 5K catalogue, WallpapersDen's HD, 4K, 5K and 8K shelves, Zastavki's thirty-six browse-first shelves, WallHere's endlessly-scrollable HD catalogue, and it grows with every source we add.",
     "packageIds": [
       "cloudimage.wallpaperflare",
       "cloudimage.wallpapersden",
-      "cloudimage.zastavki"
+      "cloudimage.zastavki",
+      "cloudimage.wallhere"
     ]
   }
 ]

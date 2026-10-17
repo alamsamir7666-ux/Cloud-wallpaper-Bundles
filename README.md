@@ -38,7 +38,7 @@ per-member uninstall/update afterwards.
 
 | Bundle | What's inside |
 |---|---|
-| **Essential Wallpapers** | WallpaperFlare — HD, 2K, 4K, 5K wallpapers from wallpaperflare.com, keyless scraper; WallpapersDen — HD, 4K, 5K, 8K wallpapers from wallpapersden.com, keyless scraper; Zastavki — browse-first shelves (36 categories) from zastavki.com, keyless scraper |
+| **Essential Wallpapers** | WallpaperFlare — HD, 2K, 4K, 5K wallpapers from wallpaperflare.com, keyless scraper; WallpapersDen — HD, 4K, 5K, 8K wallpapers from wallpapersden.com, keyless scraper; Zastavki — browse-first shelves (36 categories) from zastavki.com, keyless scraper; WallHere — HD wallpapers from wallhere.com, keyless scraper whose content-verified walk paginates endlessly on every surface (the v2.0.0 rewrite: a dead page parameter degrades to the reshuffling random surface instead of stopping at 24 items) |
 
 The catalog also carries **standalone packages** outside any bundle:
 Unsplash and Pixabay (free API key required), Pexels (free API key
