@@ -124,10 +124,10 @@ import java.net.URLEncoder
  * - [random] serves the site's own `/en/random` batch as-is — a real
  *   random feed, advertised with [Capability.RANDOM].
  *
- * ## Continuation honesty (v1.1.1)
+ * ## Continuation honesty (v1.1.1, v1.1.2)
  *
  * Every listing is a flat twenty-four-item page; the host's endless
- * scroll walks `?page=N` as deep as the bar goes. A continuation that
+ * scroll walks `?page=N` as deep as the site goes. A continuation that
  * comes back WRONG is reported, never papered over: a page-two-plus
  * fetch whose grid parses to nothing, and one whose bar marks a
  * CURRENT page that disagrees with the page requested (the site served
@@ -137,6 +137,23 @@ import java.net.URLEncoder
  * duplicate append that crashes keyed grids). Page one keeps its
  * quiet shape: an unrecognized or genuinely empty first page stays an
  * empty feed — the honest "no results" surface a fresh search needs.
+ *
+ * v1.1.2 frees the walk from the desktop bar. The site serves its
+ * MOBILE agents a different listing markup: the same 24-cell masonry
+ * grid, but the classic `<ul class="pagination">` bar is replaced by
+ * the page's own infinite-scroll wiring (a mobile browser auto-loads
+ * page two on scroll — the field report that pinned this showed every
+ * feed and search stopping at exactly 24 items with no error and no
+ * continuation, on a device whose every fetch lane carries a mobile
+ * or Android-branded agent). The bar therefore cannot be the only
+ * "more exists" signal: when a listing carries NO parseable bar, a
+ * page whose grid parsed a FULL page of fresh wallpapers (the site's
+ * fixed twenty-four) advertises page N+1 itself, a partial or empty
+ * page is the honest end, and a continuation that repeats wallpapers
+ * the walk already served for THAT listing (the site clamped a
+ * too-deep request to its last page) ends quietly with nothing
+ * appended — duplicates never reach keyed grids. When a bar IS
+ * present it still governs, exactly as before.
  *
  * ## Politeness
  *
@@ -152,7 +169,7 @@ class WallhereWallpaperProvider : WallpaperProvider {
         ProviderMeta(
             id = ID,
             name = "WallHere",
-            versionName = "1.1.1",
+            versionName = "1.1.2",
             author = "Cloudimage",
             description = "Free HD wallpapers from wallhere.com - scraped, keyless, tag-searchable.",
             // The site mixes adult-tagged content into its default feeds;
@@ -328,18 +345,25 @@ class WallhereWallpaperProvider : WallpaperProvider {
 
     /**
      * Any listing page: fetch, parse the grid, read the pagination bar.
-     * The bar is the site's own "more exists" signal — `nextPage` exists
-     * only when the bar advertises a page beyond the one requested.
-     * Continuations are honest (v1.1.1): a page-two-plus answer whose
-     * bar marks a CURRENT page that disagrees with the page requested
-     * (the site served something other than page N — the parameter did
-     * not take) is a DESCRIBED source failure, and so is a continuation
-     * whose grid parses to nothing — v1.1.0 stopped silently there,
-     * which appended duplicates into keyed grids (a crash) or spun the
-     * load-more footer forever. Page one keeps the quiet shape: an
-     * unrecognized or genuinely empty first page answers an empty feed,
-     * the honest "no results" surface. A [MAX_PAGES] cap bounds the
-     * deepest scroll the same politeness way.
+     * The bar is the site's own "more exists" signal where it exists —
+     * `nextPage` is non-null only when the bar advertises a page beyond
+     * the one requested — but v1.1.2 no longer depends on it: the
+     * MOBILE markup carries the same 24-cell grid with no bar at all
+     * (the page's own infinite-scroll wiring replaces it), so a bar-less
+     * FULL page of fresh wallpapers advertises page N+1 itself, and a
+     * bar-less partial or empty page is the honest end. Continuations
+     * are honest (v1.1.1): a page-two-plus answer whose bar marks a
+     * CURRENT page that disagrees with the page requested (the site
+     * served something other than page N — the parameter did not take)
+     * is a DESCRIBED source failure, and so is a continuation whose grid
+     * parses to nothing while a bar is present. A continuation that
+     * only repeats wallpapers the walk already served for THIS listing
+     * (the site clamped a too-deep request to its last page) ends
+     * quietly with nothing appended — duplicates never reach keyed
+     * grids. Page one keeps the quiet shape: an unrecognized or
+     * genuinely empty first page answers an empty feed, the honest "no
+     * results" surface. A [MAX_PAGES] cap bounds the deepest scroll the
+     * same politeness way.
      */
     private suspend fun listingPage(
         path: String,
@@ -364,15 +388,50 @@ class WallhereWallpaperProvider : WallpaperProvider {
                 "wallhere served page ${bar.currentPage} where page $page was requested — the page parameter did not take",
             )
         }
+        val barPresent = bar.currentPage != null || bar.maxPage > 0
         if (page > 1 && items.isEmpty()) {
-            // A continuation with no grid: either the markup changed or
-            // the answer is not a listing at all. The walk stops HERE,
-            // with the reason said out loud — an empty append would loop
-            // the host's load-more footer forever.
-            throw IllegalStateException("wallhere's page $page carried no recognizable wallpapers")
+            if (barPresent) {
+                // A bar-carrying continuation with no grid: either the
+                // markup changed or the answer is not a listing at all.
+                // The walk stops HERE, with the reason said out loud —
+                // an empty append would loop the host's load-more
+                // footer forever.
+                throw IllegalStateException("wallhere's page $page carried no recognizable wallpapers")
+            }
+            // A bar-less continuation with no grid (the mobile markup):
+            // page one parsed fine, so the markup is intact — an empty
+            // page N is the honest end of a listing that ran out (v1.1.2 —
+            // v1.1.1 threw here, painting a real end of results as a
+            // source failure on every bar-less listing).
+            return Page(emptyList(), nextPage = null)
         }
-        val nextPage = if (bar.maxPage > page) page + 1 else null
-        return Page(items.map(::gridWallpaper), nextPage = nextPage)
+        // The overlap guard: the wallpapers this walk already served for
+        // THIS listing (page one REPLACES the set — a refreshed feed
+        // starts a new walk). A continuation whose every item repeats
+        // them was clamped to the listing's last page; it ends quietly,
+        // and a partial overlap keeps only the fresh cells.
+        val listingKey = "$path|$sfwOnly"
+        val seen = seenIdsFor(listingKey)
+        val fresh = if (page == 1) items else items.filter { it.id !in seen }
+        if (page > 1 && fresh.isEmpty()) {
+            return Page(emptyList(), nextPage = null)
+        }
+        rememberSeenIds(
+            listingKey,
+            (if (page == 1) emptySet() else seen) + fresh.map { it.id },
+        )
+        val nextPage =
+            when {
+                page >= MAX_PAGES -> null
+                barPresent -> if (bar.maxPage > page) page + 1 else null
+                // No bar at all — the mobile markup. The site pads every
+                // page of a continuing listing to its fixed size; a page
+                // that came up short (or lost cells to the overlap
+                // guard) is the last one.
+                fresh.size >= FULL_PAGE -> page + 1
+                else -> null
+            }
+        return Page(fresh.map(::gridWallpaper), nextPage = nextPage)
     }
 
     /** The random batch — same grid, no pagination signal worth reading. */
@@ -430,6 +489,43 @@ class WallhereWallpaperProvider : WallpaperProvider {
         synchronized(lock) {
             items.flatMap { it.tags }.forEach { tag ->
                 if (tagPool.size < TAG_POOL_LIMIT) tagPool.add(tag)
+            }
+        }
+    }
+
+    /**
+     * The wallpaper ids a listing's walk has already served — the
+     * overlap guard's memory, keyed by listing (path plus purity) so the
+     * Popular tab, a tag lane and a search never compare notes. Page one
+     * REPLACES its listing's set: a refreshed feed is a new walk, and a
+     * revisit must not answer "everything already seen" with an empty
+     * grid. Access-ordered so the most recently walked listing survives
+     * the [SEEN_LISTINGS_LIMIT] eviction; each set is capped at the
+     * deepest legal walk's worth of ids.
+     */
+    private val seenIdsByListing = LinkedHashMap<String, LinkedHashSet<String>>(16, 0.75f, true)
+
+    private fun seenIdsFor(listingKey: String): Set<String> = synchronized(lock) { seenIdsByListing[listingKey]?.toSet() ?: emptySet() }
+
+    private fun rememberSeenIds(
+        listingKey: String,
+        ids: Set<String>,
+    ) {
+        synchronized(lock) {
+            val trimmed =
+                if (ids.size > SEEN_IDS_LIMIT) {
+                    ids.drop(ids.size - SEEN_IDS_LIMIT)
+                } else {
+                    ids.toList()
+                }
+            seenIdsByListing[listingKey] = trimmed.toCollection(LinkedHashSet())
+            // Access-ordered: the first key is the least recently walked
+            // listing — the one an eviction should forget. (The map's own
+            // removeEldestEntry is protected Java surface, unreachable
+            // from Kotlin call sites; this is the same discipline spelled
+            // out.)
+            while (seenIdsByListing.size > SEEN_LISTINGS_LIMIT) {
+                seenIdsByListing.keys.firstOrNull()?.let { seenIdsByListing.remove(it) }
             }
         }
     }
@@ -512,6 +608,15 @@ class WallhereWallpaperProvider : WallpaperProvider {
 
         /** Deep-pagination cap: a hundred pages, twenty-four items each. */
         const val MAX_PAGES = 100
+
+        /** The site's fixed page size — a full page of fresh cells means more exists. */
+        const val FULL_PAGE = 24
+
+        /** How many listings' seen-id sets the overlap guard remembers. */
+        const val SEEN_LISTINGS_LIMIT = 16
+
+        /** Per listing: every id of the deepest legal walk, plus slack. */
+        const val SEEN_IDS_LIMIT = MAX_PAGES * FULL_PAGE + FULL_PAGE
 
         /** Tag caps and the suggestion list size. */
         const val MAX_TAGS = 6

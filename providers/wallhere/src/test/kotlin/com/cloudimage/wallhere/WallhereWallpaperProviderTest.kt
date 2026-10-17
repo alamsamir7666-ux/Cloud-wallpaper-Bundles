@@ -27,7 +27,10 @@ import org.junit.Test
  * network, exactly like the WallpaperFlare suite this mirrors. The
  * v1.1.0 additions — the site's own `NSFW=off` purity switch, the
  * baked tag catalogue's exact-match lanes, and offline suggestions
- * from a fresh instance — ride the same fake.
+ * from a fresh instance — ride the same fake, as do the v1.1.2
+ * additions: the MOBILE listing markup (the same 24-cell grid with no
+ * pagination bar, whose full pages must keep the walk going by
+ * themselves) and the overlap guard's quiet ends.
  */
 class WallhereWallpaperProviderTest {
     private val provider = WallhereWallpaperProvider()
@@ -107,6 +110,26 @@ class WallhereWallpaperProviderTest {
 
     /** A listing page: the grid plus its bar. */
     private val listing = "$grid\n$bar"
+
+    /**
+     * A MOBILE listing page's grid (v1.1.2): the same masonry cells the
+     * desktop serves, sized to the site's fixed page, with NO pagination
+     * bar at all — the shape the site hands its mobile agents, whose
+     * "more exists" signal is the page's own infinite-scroll wiring
+     * rather than any markup the parser can read. [count] cells with
+     * sequential ids starting at [firstId].
+     */
+    private fun mobileGridOf(
+        count: Int,
+        firstId: Int = 3000001,
+    ): String =
+        (0 until count).joinToString("\n") { index ->
+            val id = firstId + index
+            """
+            <a href="/en/wallpaper/$id" class="current-item-photo">
+                        <img width="240" height="340" alt="mobile,grid,wallpaper" title="mobile,grid,wallpaper" src="https://c.wallhere.com/photos/11/22/mobile_grid_$id.jpg!s1" data-src="https://c.wallhere.com/photos/11/22/mobile_grid_$id.jpg!s2"></a>
+            """.trimIndent()
+        }
 
     /**
      * The bar of a LAST page: the active item is the deepest numbered
@@ -259,6 +282,127 @@ class WallhereWallpaperProviderTest {
                 "wallhere's page 2 carried no recognizable wallpapers",
                 (failure as IllegalStateException).message,
             )
+        }
+
+    // ------------------------------------------- the mobile markup (v1.1.2)
+
+    @Test
+    fun barlessFullPagesWalkOn() =
+        runTest {
+            // The mobile markup: no bar anywhere, so the page ITSELF is
+            // the signal — a full 24-cell page of fresh wallpapers
+            // advertises the next one. This is the field-reported shape
+            // that stopped every feed at exactly 24 items.
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok(mobileGridOf(24, firstId = 3000025)),
+                        "https://wallhere.com/en/wallpapers?order=popular" to ok(mobileGridOf(24)),
+                    ),
+                )
+            provider.popular(1, Filters.None).getOrThrow().also { page ->
+                assertEquals(24, page.wallpapers.size)
+                assertEquals(2, page.nextPage)
+            }
+            provider.popular(2, Filters.None).getOrThrow().also { page ->
+                assertEquals("https://wallhere.com/en/wallpapers?order=popular&page=2", client.requests.last())
+                assertEquals(24, page.wallpapers.size)
+                assertTrue(page.wallpapers.all { it.id.toInt() >= 3000025 })
+                assertEquals(3, page.nextPage)
+            }
+        }
+
+    @Test
+    fun barlessPartialPagesAreTheHonestEnd() =
+        runTest {
+            // No bar and a page that came up short of the site's fixed
+            // size: the last page of a listing.
+            configureWith(mapOf("https://wallhere.com/en/wallpapers?order=popular" to ok(mobileGridOf(10))))
+            provider.popular(1, Filters.None).getOrThrow().also { page ->
+                assertEquals(10, page.wallpapers.size)
+                assertNull(page.nextPage)
+            }
+        }
+
+    @Test
+    fun barlessEmptyContinuationsEndQuietly() =
+        runTest {
+            // No bar, no grid, page two: page one parsed fine, so the
+            // markup is intact — an empty continuation is the honest end
+            // of a listing that ran out, not a source failure (v1.1.1
+            // threw here, which would have painted every bar-less
+            // listing's true end as an error).
+            configureWith(
+                mapOf(
+                    "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok("<html><body></body></html>"),
+                    "https://wallhere.com/en/wallpapers?order=popular" to ok(mobileGridOf(24)),
+                ),
+            )
+            provider.popular(1, Filters.None).getOrThrow()
+            provider.popular(2, Filters.None).getOrThrow().also { page ->
+                assertTrue(page.wallpapers.isEmpty())
+                assertNull(page.nextPage)
+            }
+        }
+
+    @Test
+    fun clampedContinuationsEndQuietlyWithoutDuplicates() =
+        runTest {
+            // The site clamped a too-deep request to its last page: page
+            // two repeats page one's cells verbatim. The walk ends with
+            // NOTHING appended — duplicates never reach the host's keyed
+            // grids, which is the crash v1.1.1's guards were built
+            // around and the app has no defense against.
+            configureWith(
+                mapOf(
+                    "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok(mobileGridOf(24)),
+                    "https://wallhere.com/en/wallpapers?order=popular" to ok(mobileGridOf(24)),
+                ),
+            )
+            provider.popular(1, Filters.None).getOrThrow()
+            provider.popular(2, Filters.None).getOrThrow().also { page ->
+                assertTrue(page.wallpapers.isEmpty())
+                assertNull(page.nextPage)
+            }
+        }
+
+    @Test
+    fun overlappingContinuationsKeepOnlyTheFreshCells() =
+        runTest {
+            // A page two that repeats half of page one (an order that
+            // shifted between fetches): the repeats drop, the fresh cells
+            // ride on — and a short fresh remainder ends the walk.
+            val halfRepeat = mobileGridOf(12) + "\n" + mobileGridOf(12, firstId = 3000025)
+            configureWith(
+                mapOf(
+                    "https://wallhere.com/en/wallpapers?order=popular&page=2" to ok(halfRepeat),
+                    "https://wallhere.com/en/wallpapers?order=popular" to ok(mobileGridOf(24)),
+                ),
+            )
+            provider.popular(1, Filters.None).getOrThrow()
+            provider.popular(2, Filters.None).getOrThrow().also { page ->
+                assertEquals(12, page.wallpapers.size)
+                assertTrue(page.wallpapers.all { it.id.toInt() >= 3000025 })
+                assertNull(page.nextPage)
+            }
+        }
+
+    @Test
+    fun pageOneRevisitsResetTheWalk() =
+        runTest {
+            // A refreshed feed is a NEW walk: the second page-one fetch
+            // must answer its items again, not "everything already
+            // seen" — the overlap guard's memory is per-walk, replaced
+            // by every page one.
+            configureWith(mapOf("https://wallhere.com/en/wallpapers?order=popular" to ok(mobileGridOf(24))))
+            provider.popular(1, Filters.None).getOrThrow().also { page ->
+                assertEquals(24, page.wallpapers.size)
+                assertEquals(2, page.nextPage)
+            }
+            provider.popular(1, Filters.None).getOrThrow().also { page ->
+                assertEquals(24, page.wallpapers.size)
+                assertEquals(2, page.nextPage)
+            }
         }
 
     @Test
