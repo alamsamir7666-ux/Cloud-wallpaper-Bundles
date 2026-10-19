@@ -2,6 +2,19 @@
   "name": "Cloudimage Bundles",
   "packages": [
     {
+      "id": "cloudimage.behance",
+      "fileName": "cloudimage.behance.zip",
+      "sha256": "f36f3571ea64fc6b9edf02fb81c5f2a107a224951a9064a1754e8a04e8a2d986",
+      "sizeBytes": 24736,
+      "name": "Behance",
+      "versionName": "1.0.0",
+      "versionCode": 1,
+      "apiVersion": 1,
+      "author": "Cloudimage",
+      "description": "Design-grade wallpapers from behance.net project collections - scraped, keyless.",
+      "categories": []
+    },
+    {
       "id": "cloudimage.hdqwalls",
       "fileName": "cloudimage.hdqwalls.zip",
       "sha256": "5bc19e4b2b42a782fa1b4229f0b3660152f46f84e46639d81bf43cb156895725",
@@ -146,11 +159,12 @@
     {
       "id": "wallpapers",
       "name": "Essential Wallpapers",
-      "description": "The must-have wallpaper sources for Cloudimage, curated in one pack - WallpaperFlare's HD, 2K, 4K and 5K catalogue, WallpapersDen's HD, 4K, 5K and 8K shelves, plus Zastavki's thirty-six browse-first shelves, and it grows with every source we add.",
+      "description": "The must-have wallpaper sources for Cloudimage, curated in one pack - WallpaperFlare's HD, 2K, 4K and 5K catalogue, WallpapersDen's HD, 4K, 5K and 8K shelves, Zastavki's thirty-six browse-first shelves, plus Behance's design-grade project wallpapers, and it grows with every source we add.",
       "packageIds": [
         "cloudimage.wallpaperflare",
         "cloudimage.wallpapersden",
-        "cloudimage.zastavki"
+        "cloudimage.zastavki",
+        "cloudimage.behance"
       ]
     }
   ]
