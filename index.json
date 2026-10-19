@@ -84,11 +84,11 @@
     {
       "id": "cloudimage.wallpapercave",
       "fileName": "cloudimage.wallpapercave.zip",
-      "sha256": "d989c55bdb6187dbe58baac3bca8fbfd4943c6d9597321acb3201e549be2aa3e",
-      "sizeBytes": 25494,
+      "sha256": "250a85e88e6c3d4c14a0d7db66457390fd5722778a727f57e8fe48c99ee45e44",
+      "sizeBytes": 25956,
       "name": "WallpaperCave",
-      "versionName": "1.2.0",
-      "versionCode": 3,
+      "versionName": "1.2.1",
+      "versionCode": 4,
       "apiVersion": 1,
       "author": "Cloudimage",
       "description": "Wallpapers from wallpapercave.com - scraped, keyless.",
@@ -146,12 +146,11 @@
     {
       "id": "wallpapers",
       "name": "Essential Wallpapers",
-      "description": "The must-have wallpaper sources for Cloudimage, curated in one pack - WallpaperFlare's HD, 2K, 4K and 5K catalogue, WallpapersDen's HD, 4K, 5K and 8K shelves, Zastavki's thirty-six browse-first shelves, WallHere's endlessly-scrollable HD catalogue, and it grows with every source we add.",
+      "description": "The must-have wallpaper sources for Cloudimage, curated in one pack - WallpaperFlare's HD, 2K, 4K and 5K catalogue, WallpapersDen's HD, 4K, 5K and 8K shelves, plus Zastavki's thirty-six browse-first shelves, and it grows with every source we add.",
       "packageIds": [
         "cloudimage.wallpaperflare",
         "cloudimage.wallpapersden",
-        "cloudimage.zastavki",
-        "cloudimage.wallhere"
+        "cloudimage.zastavki"
       ]
     }
   ]
