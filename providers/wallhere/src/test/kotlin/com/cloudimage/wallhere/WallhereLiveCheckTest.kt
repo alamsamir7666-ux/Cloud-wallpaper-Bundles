@@ -81,12 +81,12 @@ class WallhereLiveCheckTest {
         }
 
     /**
-     * THE v2.0.0 acceptance check: a real connection must walk past
-     * the twenty-four-item cliff — page two must serve FRESH
-     * wallpapers (the page parameter took) or the random lane's fresh
-     * draws (the dead-parameter fallback) — either way the walk
-     * continues, which is the failure the retired v1.x line could not
-     * fix in the field.
+     * THE v2.0.1 acceptance check: a real connection must walk past
+     * the twenty-four-item cliff AND past the single-draw cliff — the
+     * fallback must keep serving FRESH wallpapers page after page,
+     * which is the exact shape the v2.0.0 line died on in the field
+     * (its random re-draw served one usable draw and then repeated
+     * the walk's memory on the second).
      */
     @Test
     fun theWalkPassesTwentyFourItems() =
@@ -103,25 +103,48 @@ class WallhereLiveCheckTest {
                 "the walk died at twenty-four items — the continuation served nothing",
                 second.wallpapers.isNotEmpty(),
             )
-            val firstIds = first.wallpapers.map { it.id }.toSet()
+            val served = first.wallpapers.map { it.id }.toMutableSet()
             assertTrue(
-                "the continuation must serve FRESH wallpapers, never repeats",
-                second.wallpapers.none { it.id in firstIds },
+                "the first continuation must serve FRESH wallpapers, never repeats",
+                second.wallpapers.none { it.id in served },
+            )
+            served += second.wallpapers.map { it.id }
+
+            // The v2.0.0 cliff specifically: the THIRD page must still
+            // serve fresh cells — the dead-parameter lane's second
+            // random draw is where the reshuffle assumption died.
+            val third = provider.popular(3, Filters.None).getOrThrow()
+            assertTrue(
+                "the walk died at two draws — the deep random cursor must keep serving",
+                third.wallpapers.isNotEmpty(),
+            )
+            assertTrue(
+                "a deep continuation must serve FRESH wallpapers, never repeats",
+                third.wallpapers.none { it.id in served },
             )
         }
 
-    /** The same acceptance for search: a query's results walk past twenty-four too. */
+    /**
+     * The tag lane: search must resolve "nature" onto the Nature
+     * tag's OWN grid — the site's `?q=` lane is dead (probed live), so
+     * the tag page is the only precision surface — and the items it
+     * serves must actually carry nature vocabulary.
+     */
     @Test
-    fun searchWalksPastTwentyFour() =
+    fun searchRidesTheRealTagLane() =
         runTest {
             assumeTrue(System.getenv("WALLHERE_LIVE") == "1")
             provider.configure(LiveClient(), ProviderSettings { null })
 
             val first = provider.search("nature", 1, Filters.None).getOrThrow()
-            assertTrue("search parsed no wallpapers", first.wallpapers.isNotEmpty())
+            assertTrue("tag search parsed no wallpapers", first.wallpapers.isNotEmpty())
+            assertTrue(
+                "the Nature tag grid must carry nature-ish tag rows",
+                first.wallpapers.any { it.tags.any { tag -> tag.contains("nature", ignoreCase = true) } },
+            )
 
             val second = provider.search("nature", 2, Filters.None).getOrThrow()
-            assertTrue("search died at twenty-four items", second.wallpapers.isNotEmpty())
+            assertTrue("tag search died at twenty-four items", second.wallpapers.isNotEmpty())
         }
 
     /**

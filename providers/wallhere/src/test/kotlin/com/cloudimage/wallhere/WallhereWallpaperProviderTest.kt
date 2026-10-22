@@ -15,7 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The v2.0.0 walk's suite, over a scripted fake of the plugin-facing
+ * The v2.0.1 walk's suite, over a scripted fake of the plugin-facing
  * HTTP facade, with fixtures in the shapes of wallhere.com's LIVE
  * markup (the `current-item-photo` masonry cells with their `!s1`/
  * `!s2` CDN thumbnails and tag rows in the img's `title`, the desktop
@@ -25,14 +25,26 @@ import org.junit.Test
  * link) — all covered without a network, exactly like the suite this
  * repo's other providers ship.
  *
- * The center of the suite is the failure the retired v1.x line died
- * of: a connection whose page parameter does not advance (the mobile
- * dialect, a cache-flattened replay) answered every continuation with
- * page one's items again, and every feed and search stopped at
- * exactly twenty-four items. Here that connection is the lane the
- * walk CONTINUES ON — the random surface's reshuffling draws keep the
- * scroll fed, deduped by the per-listing id memory, and no duplicate
- * ever reaches the grid.
+ * The center of the suite is the pair of live-probed facts the
+ * v2.0.1 line exists to serve (October 2026):
+ *
+ * - the random surface is a STABLE, DEEP LISTING (14,295 pages by its
+ *   own bar), NOT a per-load reshuffle — the bare-path re-draw the
+ *   v2.0.0 fallback trusted served exactly one usable draw and then
+ *   repeated the walk's memory, so every feed died at a couple dozen
+ *   items. The fallback now WALKS the random listing's own pages by a
+ *   per-listing cursor, deep as the listing goes;
+ * - the `?q=` search lane is IGNORED by the site (a nonsense `q=`
+ *   answers with the popular grid unchanged) — search now resolves
+ *   queries through the baked tag catalogue and walks the REAL
+ *   precision lane, `/en/tag/{id}`, and a query resolving to nothing
+ *   answers empty instead of serving the popular feed as "results".
+ *
+ * A connection whose page parameter does not advance (the mobile
+ * dialect, a cache-flattened replay) answers every continuation with
+ * page one's items again — the lane the fallback keeps fed, deduped
+ * by the per-listing id memory, so no duplicate ever reaches the
+ * grid.
  */
 class WallhereWallpaperProviderTest {
     private val provider = WallhereWallpaperProvider()
@@ -116,8 +128,17 @@ class WallhereWallpaperProviderTest {
 
     private fun popularPage(n: Int): String = "$popularUrl&page=$n"
 
-    /** The random surface's bare URL (page one, unfiltered). */
+    /** The random listing's page [n] — the fallback's deep lane. */
     private val randomUrl = "https://wallhere.com/en/random"
+
+    private fun randomPage(n: Int): String =
+        if (n == 1) randomUrl else "$randomUrl?page=$n"
+
+    /** The Nature tag's grid (catalogue id 212) — the search precision lane. */
+    private val natureTagUrl = "https://wallhere.com/en/tag/212"
+
+    private fun natureTagPage(n: Int): String =
+        if (n == 1) natureTagUrl else "$natureTagUrl?page=$n"
 
     // ------------------------------------------------- the desktop walk
 
@@ -203,9 +224,10 @@ class WallhereWallpaperProviderTest {
      * The dead parameter's DESKTOP shape — the v1.1.1 field failure
      * verbatim: the continuation answers page ONE again, bar and all
      * (current=1, max=70329 — a live listing, not an end). The v1.x
-     * line threw here, naming the mismatch; the v2.0.0 walk reads the
+     * line threw here, naming the mismatch; the walk reads the
      * all-repeat shape for what it is — the parameter did not take on
-     * this connection — and continues on the random surface.
+     * this connection — and continues on the random listing's first
+     * un-walked page.
      */
     @Test
     fun deadParameterOnTheDesktopDialectRidesTheRandomLane() =
@@ -216,7 +238,7 @@ class WallhereWallpaperProviderTest {
                     mapOf(
                         popularUrl to ok(pageOne),
                         popularPage(2) to ok(pageOne),
-                        randomUrl to ok(gridOf(24, 4000001)),
+                        randomPage(1) to ok(gridOf(24, 4000001)),
                     ),
                 )
 
@@ -226,7 +248,7 @@ class WallhereWallpaperProviderTest {
             assertEquals(24, second.wallpapers.count { it.id.toInt() >= 4000001 })
             assertEquals(3, second.nextPage)
             assertEquals(
-                listOf(popularUrl, popularPage(2), randomUrl),
+                listOf(popularUrl, popularPage(2), randomPage(1)),
                 client.requests,
             )
         }
@@ -234,17 +256,19 @@ class WallhereWallpaperProviderTest {
     // ------------------------------ THE regression: the dead-parameter lane
 
     /**
-     * THE v1.x FAILURE, the exact field shape this rewrite exists to
+     * THE v2.0.0 FAILURE, the exact field shape this rewrite exists to
      * kill: a connection (the mobile dialect, a cache-flattened
      * replay) answering every `?page=N` continuation with page one's
-     * items again — bar-less, so no bar governs. The v1.x line stopped
-     * at exactly twenty-four items; the v2.0.0 walk verifies the
-     * continuation BY CONTENT, names the dead parameter by its all-
-     * repeat shape, and CONTINUES ON THE RANDOM SURFACE — the user's
-     * scroll keeps being fed fresh wallpapers, deduped.
+     * items again — bar-less, so no bar governs. The v2.0.0 fallback
+     * re-drew the BARE random path and trusted the reshuffle that
+     * probing proved absent, so the SECOND draw repeated the walk's
+     * memory and the walk died anyway. The v2.0.1 fallback WALKS the
+     * random listing's own pages: each dead continuation draws the
+     * NEXT page the listing's cursor has not served — deep as the
+     * fourteen-thousand-page listing goes, deduped, never dead.
      */
     @Test
-    fun deadParameterContinuesOnTheRandomSurface() =
+    fun deadParameterContinuesOnTheRandomListingPages() =
         runTest {
             val pageOneGrid = gridOf(24, 3000001)
             val client =
@@ -252,11 +276,12 @@ class WallhereWallpaperProviderTest {
                     mapOf(
                         // The mobile dialect: full 24-cell grid, NO bar.
                         popularUrl to ok(pageOneGrid),
-                        // The dead parameter: page two answers page one again.
+                        // The dead parameter: every continuation answers page one.
                         popularPage(2) to ok(pageOneGrid),
                         popularPage(3) to ok(pageOneGrid),
-                        // The random surface: a fresh reshuffled draw per load.
-                        randomUrl to ok(gridOf(24, 4000001)),
+                        // The random listing: STABLE pages, one per draw.
+                        randomPage(1) to ok(gridOf(24, 4000001)),
+                        randomPage(2) to ok(gridOf(24, 4000025)),
                     ),
                 )
 
@@ -275,30 +300,36 @@ class WallhereWallpaperProviderTest {
             )
             assertEquals("the walk continues past twenty-four", 3, second.nextPage)
             assertEquals(
-                "the dead probe precedes the random draw",
-                listOf(popularUrl, popularPage(2), randomUrl),
+                "the dead probe precedes the first random page",
+                listOf(popularUrl, popularPage(2), randomPage(1)),
                 client.requests,
             )
 
-            // Page three: the lane is still dead, another reshuffled draw
-            // keeps the walk fed — and nothing repeats anywhere.
-            client.routes = mapOf(popularPage(3) to ok(pageOneGrid), randomUrl to ok(gridOf(24, 4000025)))
+            // Page three: the lane is still dead, and the fallback
+            // walks DEEPER — the listing's second page, not a re-draw
+            // of the first (the v2.0.0 cliff, on the lane that killed
+            // it: the bare-path re-draw answered the same batch again).
             val third = provider.popular(3, Filters.None).getOrThrow()
             assertEquals(24, third.wallpapers.size)
             assertEquals(24, third.wallpapers.count { it.id.toInt() >= 4000025 })
             assertEquals(4, third.nextPage)
+            assertEquals(
+                listOf(popularUrl, popularPage(2), randomPage(1), popularPage(3), randomPage(2)),
+                client.requests,
+            )
 
             val served = (first.wallpapers + second.wallpapers + third.wallpapers).map { it.id }
             assertEquals("no duplicate ever reaches the grid", served.size, served.distinct().size)
         }
 
     /**
-     * The dead-parameter lane's own end: a random draw that repeats
-     * everything the walk already served (a walk at the cap of a very
-     * narrow pool) is the honest end — never an error, never a loop.
+     * The fallback's skip-ahead: a random page that repeats the walk's
+     * whole memory (an overlapping shuffle region, a boundary) is not
+     * the end yet — the cursor skips forward, bounded, and the next
+     * page feeds the walk.
      */
     @Test
-    fun exhaustedRandomPoolEndsHonestly() =
+    fun allRepeatRandomPagesAreSkippedNotFatal() =
         runTest {
             val pageOneGrid = gridOf(24, 3000001)
             val client =
@@ -306,8 +337,44 @@ class WallhereWallpaperProviderTest {
                     mapOf(
                         popularUrl to ok(pageOneGrid),
                         popularPage(2) to ok(pageOneGrid),
-                        // The reshuffle repeats the walk's whole memory.
-                        randomUrl to ok(gridOf(24, 3000001)),
+                        // Random pages one AND two repeat the memory…
+                        randomPage(1) to ok(gridOf(24, 3000001)),
+                        randomPage(2) to ok(gridOf(24, 3000001)),
+                        // …page three finally serves fresh cells.
+                        randomPage(3) to ok(gridOf(24, 4000001)),
+                    ),
+                )
+
+            provider.popular(1, Filters.None).getOrThrow()
+            val second = provider.popular(2, Filters.None).getOrThrow()
+            assertEquals(24, second.wallpapers.size)
+            assertEquals(24, second.wallpapers.count { it.id.toInt() >= 4000001 })
+            assertEquals(
+                "the lane skipped the repeat pages without dying",
+                listOf(popularUrl, popularPage(2), randomPage(1), randomPage(2), randomPage(3)),
+                client.requests,
+            )
+        }
+
+    /**
+     * The dead-parameter lane's own end: a random listing that repeats
+     * the walk's whole memory page after page, past the skip-ahead's
+     * bound, is the honest end — never an error, never a loop.
+     */
+    @Test
+    fun exhaustedRandomListingEndsHonestly() =
+        runTest {
+            val pageOneGrid = gridOf(24, 3000001)
+            val client =
+                configureWith(
+                    mapOf(
+                        popularUrl to ok(pageOneGrid),
+                        popularPage(2) to ok(pageOneGrid),
+                        // Every random page repeats the walk's memory.
+                        randomPage(1) to ok(gridOf(24, 3000001)),
+                        randomPage(2) to ok(gridOf(24, 3000001)),
+                        randomPage(3) to ok(gridOf(24, 3000001)),
+                        randomPage(4) to ok(gridOf(24, 3000001)),
                     ),
                 )
 
@@ -315,6 +382,8 @@ class WallhereWallpaperProviderTest {
             val second = provider.popular(2, Filters.None).getOrThrow()
             assertTrue(second.wallpapers.isEmpty())
             assertNull(second.nextPage)
+            // One probe plus the cursor's page and three skips.
+            assertEquals(6, client.requests.size)
         }
 
     /**
@@ -346,7 +415,7 @@ class WallhereWallpaperProviderTest {
     /**
      * A bar-less EMPTY continuation (the mobile dialect's ran-out
      * shape, after a full page one): the random lane decides — a
-     * fresh draw continues the walk, never an error like v1.1.1's and
+     * fresh page continues the walk, never an error like v1.1.1's and
      * never the silent stop of v1.1.0.
      */
     @Test
@@ -357,7 +426,7 @@ class WallhereWallpaperProviderTest {
                     mapOf(
                         popularUrl to ok(gridOf(24, 3000001)),
                         popularPage(2) to ok(""),
-                        randomUrl to ok(gridOf(24, 4000001)),
+                        randomPage(1) to ok(gridOf(24, 4000001)),
                     ),
                 )
 
@@ -370,46 +439,70 @@ class WallhereWallpaperProviderTest {
     // ----------------------------------------------------- search & feeds
 
     /**
-     * Search rides the site's own `q=` form target, walked page by
-     * page with the same content-verified continuation; a genuinely
-     * empty first page is the honest "no results", never a failure
-     * and never a random ride.
+     * Search resolves through the tag catalogue onto the REAL
+     * precision lane — `/en/tag/{id}` — because the site's `?q=`
+     * parameter is dead (probed live: a nonsense `q=` answers with
+     * the popular grid unchanged). "nature" walks the Nature tag's
+     * own grid, page by page with the same content-verified
+     * continuation.
      */
     @Test
-    fun searchWalksTheSiteQueryAndEndsEmptyHonestly() =
+    fun searchRidesTheTagLane() =
         runTest {
             val client =
                 configureWith(
                     mapOf(
-                        "https://wallhere.com/en/wallpapers?q=ghosts+of+mars" to ok(""),
-                    ),
-                )
-
-            val miss = provider.search("ghosts of mars", 1, Filters.None).getOrThrow()
-            assertTrue(miss.wallpapers.isEmpty())
-            assertNull(miss.nextPage)
-            assertEquals(listOf("https://wallhere.com/en/wallpapers?q=ghosts+of+mars"), client.requests)
-        }
-
-    /** The hit walk: full pages under the bar, deep as the site goes. */
-    @Test
-    fun searchContinuesWithFreshCells() =
-        runTest {
-            val client =
-                configureWith(
-                    mapOf(
-                        "https://wallhere.com/en/wallpapers?q=nature" to ok("${gridOf(24, 3000001)}\n${bar(1, 29366)}"),
-                        "https://wallhere.com/en/wallpapers?q=nature&page=2" to ok("${gridOf(24, 3000025)}\n${bar(2, 29366)}"),
+                        natureTagPage(1) to ok("${gridOf(24, 5000001)}\n${bar(1, 6250)}"),
+                        natureTagPage(2) to ok("${gridOf(24, 5000025)}\n${bar(2, 6250)}"),
                     ),
                 )
 
             val first = provider.search("nature", 1, Filters.None).getOrThrow()
             assertEquals(24, first.wallpapers.size)
             assertEquals(2, first.nextPage)
+            assertEquals(listOf(natureTagUrl), client.requests)
 
             val second = provider.search("nature", 2, Filters.None).getOrThrow()
             assertEquals(24, second.wallpapers.size)
-            assertTrue(second.wallpapers.all { it.id.toInt() >= 3000025 })
+            assertTrue(second.wallpapers.all { it.id.toInt() >= 5000025 })
+        }
+
+    /**
+     * A multi-word query resolves through its content-bearing noun:
+     * "indian women" names no whole tag, but "women" does — the
+     * word-tier of the cascade keeps multi-word queries precise
+     * instead of dead.
+     */
+    @Test
+    fun multiWordSearchResolvesItsNouns() =
+        runTest {
+            val client =
+                configureWith(
+                    mapOf(
+                        "https://wallhere.com/en/tag/72" to ok("${gridOf(24, 5000001)}\n${bar(1, 8000)}"),
+                    ),
+                )
+
+            val page = provider.search("indian women", 1, Filters.None).getOrThrow()
+            assertEquals(24, page.wallpapers.size)
+            assertEquals(listOf("https://wallhere.com/en/tag/72"), client.requests)
+        }
+
+    /**
+     * A query resolving to NO tag is the honest empty answer: the
+     * site's `q=` lane would answer it with the popular grid (the
+     * silent lie the v2.0.0 line told), and the tag lane answers
+     * "nothing here matches" — with no fetch spent.
+     */
+    @Test
+    fun unmatchedSearchAnswersEmpty() =
+        runTest {
+            val client = configureWith(emptyMap())
+
+            val miss = provider.search("ghosts of mars", 1, Filters.None).getOrThrow()
+            assertTrue(miss.wallpapers.isEmpty())
+            assertNull(miss.nextPage)
+            assertTrue("an unmatched query costs no fetch", client.requests.isEmpty())
         }
 
     /** A BLANK query rides the latest order, at the page the host asked for. */
@@ -428,7 +521,7 @@ class WallhereWallpaperProviderTest {
             assertEquals(listOf("https://wallhere.com/en/wallpapers?order=latest&page=2"), client.requests)
         }
 
-    /** `sorting=date` walks the latest order; a recognized category walks its own lane. */
+    /** `sorting=date` walks the latest order; a recognized category walks its own tag lane. */
     @Test
     fun hostVocabularyMapsOntoTheSiteLanes() =
         runTest {
@@ -436,8 +529,8 @@ class WallhereWallpaperProviderTest {
                 configureWith(
                     mapOf(
                         "https://wallhere.com/en/wallpapers?order=latest" to ok("${gridOf(24)}\n${bar(1, 70329)}"),
-                        "https://wallhere.com/en/wallpapers?q=anime" to ok("${gridOf(24, 5000001)}\n${bar(1, 30142)}"),
-                        "https://wallhere.com/en/wallpapers?q=portrait" to ok("${gridOf(24, 6000001)}\n${bar(1, 10355)}"),
+                        "https://wallhere.com/en/tag/150" to ok("${gridOf(24, 5000001)}\n${bar(1, 6645)}"),
+                        "https://wallhere.com/en/tag/80" to ok("${gridOf(24, 6000001)}\n${bar(1, 10355)}"),
                     ),
                 )
 
@@ -445,26 +538,28 @@ class WallhereWallpaperProviderTest {
             assertEquals("https://wallhere.com/en/wallpapers?order=latest", client.requests.last())
 
             val anime = provider.popular(1, Filters.of("category" to "anime")).getOrThrow()
-            assertEquals("https://wallhere.com/en/wallpapers?q=anime", client.requests.last())
+            assertEquals("https://wallhere.com/en/tag/150", client.requests.last())
             assertTrue(anime.wallpapers.all { it.id.toInt() >= 5000001 })
 
             val people = provider.popular(1, Filters.of("category" to "people")).getOrThrow()
-            assertEquals("https://wallhere.com/en/wallpapers?q=portrait", client.requests.last())
+            assertEquals("https://wallhere.com/en/tag/80", client.requests.last())
         }
 
     /**
-     * `sorting=random` rides the random surface's own reshuffle mode:
-     * page one is a bare draw, every continuation is a FRESH bare
-     * draw (the reshuffling source needs no page parameter at all),
-     * and the id memory keeps the sequence duplicate-free.
+     * `sorting=random` walks the random listing's OWN pages: the
+     * listing is stable between loads (probed live — the bare path
+     * answers the same batch minute over minute), so its depth, not a
+     * reshuffle, is what feeds the walk — page one bare, every
+     * continuation at `?page=N`, deduped by the id memory.
      */
     @Test
-    fun randomSortingReshufflesEveryPage() =
+    fun randomSortingWalksItsOwnPages() =
         runTest {
             val client =
                 configureWith(
                     mapOf(
-                        randomUrl to ok(gridOf(24, 7000001)),
+                        randomPage(1) to ok(gridOf(24, 7000001)),
+                        randomPage(2) to ok(gridOf(24, 7000025)),
                     ),
                 )
 
@@ -472,30 +567,29 @@ class WallhereWallpaperProviderTest {
             assertEquals(24, first.wallpapers.size)
             assertEquals(2, first.nextPage)
 
-            client.routes = mapOf(randomUrl to ok(gridOf(24, 7000025)))
             val second = provider.popular(2, Filters.of("sorting" to "random")).getOrThrow()
             assertEquals(24, second.wallpapers.size)
             assertEquals(24, second.wallpapers.count { it.id.toInt() >= 7000025 })
             assertEquals(3, second.nextPage)
             assertEquals(
-                "the reshuffle lane never builds a page URL",
-                listOf(randomUrl, randomUrl),
+                "the random feed rides the listing's own page parameter",
+                listOf(randomPage(1), randomPage(2)),
                 client.requests,
             )
         }
 
-    /** The bare contract call: one fresh random batch, served as-is. */
+    /** The bare contract call: the random listing's first page, served as-is. */
     @Test
     fun randomServesOneBatch() =
         runTest {
             val client =
                 configureWith(
-                    mapOf(randomUrl to ok(gridOf(24, 7000001))),
+                    mapOf(randomPage(1) to ok(gridOf(24, 7000001))),
                 )
 
             val batch = provider.random().getOrThrow()
             assertEquals(24, batch.size)
-            assertEquals(listOf(randomUrl), client.requests)
+            assertEquals(listOf(randomPage(1)), client.requests)
         }
 
     // ------------------------------------------------------ purity & identity
@@ -505,14 +599,14 @@ class WallhereWallpaperProviderTest {
     fun sfwOnlyRidesTheSiteSwitchEverywhere() =
         runTest {
             val sfwPopular = "$popularUrl&NSFW=off"
-            val sfwRandom = "$randomUrl?NSFW=off"
+            val sfwRandomPage1 = "$randomUrl?NSFW=off"
             val pageOneGrid = gridOf(24, 3000001)
             val client =
                 configureWith(
                     mapOf(
                         sfwPopular to ok(pageOneGrid),
                         "$sfwPopular&page=2" to ok(pageOneGrid),
-                        sfwRandom to ok(gridOf(24, 4000001)),
+                        sfwRandomPage1 to ok(gridOf(24, 4000001)),
                     ),
                 )
 
@@ -522,8 +616,8 @@ class WallhereWallpaperProviderTest {
             val second = provider.popular(2, Filters.of("purity" to "sfw")).getOrThrow()
             assertEquals(24, second.wallpapers.size)
             assertEquals(
-                "the switch rides the dead-parameter probe AND the random draw",
-                listOf(sfwPopular, "$sfwPopular&page=2", sfwRandom),
+                "the switch rides the dead-parameter probe AND the random page",
+                listOf(sfwPopular, "$sfwPopular&page=2", sfwRandomPage1),
                 client.requests,
             )
         }
@@ -552,7 +646,7 @@ class WallhereWallpaperProviderTest {
                     mapOf(
                         popularUrl to ok(pageOneGrid),
                         popularPage(2) to ok(pageOneGrid),
-                        randomUrl to ok(gridOf(24, 4000001)),
+                        randomPage(1) to ok(gridOf(24, 4000001)),
                     ),
                 )
 
@@ -598,7 +692,7 @@ class WallhereWallpaperProviderTest {
                 configureWith(
                     mapOf(
                         popularUrl to ok(gridOf(24, 3000001)),
-                        "https://wallhere.com/en/wallpapers?q=nature" to ok(gridOf(24, 3000001)),
+                        natureTagUrl to ok(gridOf(24, 3000001)),
                     ),
                 )
 
@@ -741,13 +835,13 @@ class WallhereWallpaperProviderTest {
         }
 
     /**
-     * Suggestions answer offline: the baked seed first, supplemented
-     * by harvested rows — and the SAME per-word adult check gates both
-     * lanes, so the suggestion filter can never offer the vocabulary
-     * the content filter would refuse.
+     * Suggestions answer offline: the catalogue's tiered matches first,
+     * supplemented by harvested rows — and the SAME per-word adult
+     * check gates both lanes, so the suggestion filter can never
+     * offer the vocabulary the content filter would refuse.
      */
     @Test
-    fun suggestionsComeFromSeedAndPoolWithheldPerWord() =
+    fun suggestionsComeFromCatalogueAndPoolWithheldPerWord() =
         runTest {
             val client =
                 configureWith(
@@ -757,12 +851,12 @@ class WallhereWallpaperProviderTest {
             provider.popular(1, Filters.None).getOrThrow()
 
             val nature = provider.suggestTags("nat").getOrThrow()
-            assertTrue(nature.contains("nature"))
+            assertTrue(nature.any { it.equals("nature", ignoreCase = true) })
             assertFalse("adult vocabulary is withheld from suggestions", provider.suggestTags("linger").getOrThrow().any { it.contains("linger", ignoreCase = true) })
             assertFalse(provider.suggestTags("pant").getOrThrow().any { it.contains("pant", ignoreCase = true) })
         }
 
-    /** The suggestion seed answers immediately on a fresh instance — no network, no harvest needed. */
+    /** The catalogue answers immediately on a fresh instance — no network, no harvest needed. */
     @Test
     fun suggestionsAnswerOnAFreshInstance() =
         runTest {
@@ -779,7 +873,7 @@ class WallhereWallpaperProviderTest {
     @Test
     fun metaDeclaresTheV2Shape() {
         assertEquals("cloudimage.wallhere", provider.meta.id)
-        assertEquals("2.0.0", provider.meta.versionName)
+        assertEquals("2.0.1", provider.meta.versionName)
         assertEquals(ContentRating.SKETCHY, provider.meta.contentRating)
         assertEquals(
             setOf(Capability.POPULAR, Capability.LATEST, Capability.SEARCH, Capability.FILTERS, Capability.TAGS, Capability.RANDOM),

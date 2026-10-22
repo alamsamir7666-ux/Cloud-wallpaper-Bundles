@@ -17,66 +17,81 @@ import java.net.URLEncoder
 /**
  * WallHere (https://wallhere.com) as a Cloudimage provider package — a
  * keyless scraper over the site's server-rendered pages, the same way
- * every scraping source in this set works. This is the v2.0.0 rewrite:
- * the walk that cannot die at twenty-four.
+ * every scraping source in this set works. This is the v2.0.1 line:
+ * the walk that cannot die at twenty-four, on lanes that actually
+ * exist.
  *
- * ## The problem this rewrite exists to solve
+ * ## What v2.0.1 exists to fix — two premises of the v2.0.0 walk that
+ * live probing falsified (October 2026)
+ *
+ * THE RANDOM SURFACE DOES NOT RESHUFFLE PER LOAD. The v2.0.0 fallback
+ * re-drew the bare `/en/random` on every dead-parameter continuation,
+ * trusting each draw to be a fresh shuffle of a 343-thousand-item pool.
+ * Probed live, the bare page answers the SAME batch minute over minute
+ * — and carries a classic pagination bar of its own (`1 … 14295`),
+ * 14,295 pages of twenty-four. It is a STABLE, DEEP LISTING, not a
+ * shuffle. In the field that meant the fallback fed the walk exactly
+ * ONE usable draw and then served the walk's whole memory back: the
+ * second draw repeated, `fresh` came up empty, and every feed and
+ * search still ended at a couple dozen items — the very truncation
+ * v2.0.0 was written to kill. The v2.0.1 fallback walks the random
+ * listing's OWN pages: a monotonic per-listing cursor, one page
+ * further each draw, as deep as 14,295 pages — with a bounded
+ * skip-ahead for a page that repeats the walk's memory and the same
+ * id-dedupe armor as every other lane.
+ *
+ * THE `?q=` SEARCH LANE IS DEAD. Probed live, `/en/wallpapers?q=<any
+ * text>` answers with the popular grid unchanged — a nonsense query
+ * returns the identical first page as no query at all. Every v2.0.0
+ * "search" silently served the popular feed. The site is TAG-FIRST:
+ * its precision surface is the strictly-tagged grid behind
+ * `/en/tag/{id}` (Nature: 6,250 pages; Anime: 6,645), the lane the
+ * v1.1.0 line rode before the rewrite dropped it. v2.0.1 resurrects
+ * the baked 605-tag catalogue: search resolves the query to a tag —
+ * exactly, then word-by-word, then as a phrase fragment — and walks
+ * that tag's own grid; a query resolving to NO tag is the honest
+ * "no results" it is, never the popular feed wearing a search's
+ * clothes.
+ *
+ * ## The walk that survives both dialects (inherited from v2.0.0)
  *
  * Every listing on this site is a flat twenty-four-item page, and the
- * app's endless scroll walks `?page=N`. The retired v1.x line trusted
- * ONE continuation dialect — the desktop markup's pagination bar — and
- * died in the field exactly there: the site serves MOBILE agents a
- * different dialect (the same 24-cell grid, no bar, infinite-scroll
- * wiring instead), and on a phone the app's fetch lanes carry mobile
- * or Android-branded agents. Four revisions of bar heuristics (v1.1.1
- * through v1.1.4) could not make one dialect's furniture govern the
- * other's pages, and every feed and search stopped at exactly
- * twenty-four items — the failure this rewrite treats as the design
- * center, not an edge case.
- *
- * ## The v2.0.0 walk — verify, then adapt, never die
- *
- * Every continuation is verified BY CONTENT, never by trust: the walk
- * keeps the wallpaper ids it already served for the listing it is
- * walking, and a fetched page's FRESH cells — ids the walk has not
- * served — are the only proof the page parameter advanced. That single
- * rule is dialect-neutral, so the walk works on the desktop bar
- * dialect and the bar-less mobile dialect alike:
+ * app's endless scroll walks `?page=N`. The site serves MOBILE agents
+ * a different dialect of the same grid (no pagination bar,
+ * infinite-scroll wiring instead), and on a phone the app's fetch
+ * lanes carry mobile or Android-branded agents — so every
+ * continuation is verified BY CONTENT, never by trust: a page whose
+ * FRESH cells (ids this listing's walk has not served) exist advances
+ * the walk; a page whose every cell repeats did not advance, and the
+ * walk continues on the RANDOM LISTING's deep pages instead of dying;
+ * a page the site clamps past the listing's end (the bar marks a
+ * shallower page than requested) is the honest end.
  *
  * - a page with fresh cells is served, deduped, and the walk continues;
- * - a page whose every cell repeats the walk's memory did not
- *   advance — the mobile dialect ignoring the parameter, or a
- *   cache-flattened replay — and instead of erroring out (the v1.x
- *   behavior) or stopping in silence, the walk CONTINUES ON THE
- *   RANDOM SURFACE: `/en/random` reshuffles its batch on every load —
- *   an endless source of fresh cells on every connection and every
- *   dialect, needing no page parameter at all — so the user's scroll
- *   keeps being fed real, fresh wallpapers;
- * - a page the site itself clamps past the listing's end (the bar
- *   marks a SHALLOWER page than requested, or advertises none so
- *   deep) is the honest end — nothing more exists to serve.
+ * - a continuation with no fresh cells falls to the random listing's
+ *   next page (the cursor), which keeps serving fresh cells walk
+ *   after walk — the fix for the single-draw cliff of v2.0.0;
+ * - the deep-pagination cap bounds everything at a hundred pages.
  *
  * The pagination bar, when present, still governs the "more exists"
- * signal exactly as before; the random fallback is the second layer
- * that makes the walk unkillable, and the per-listing id memory is
- * the third — duplicates can never reach keyed grids on any path.
+ * signal; the per-listing id memory is the duplicate armor that makes
+ * the fallback and every other lane safe for keyed grids.
  *
  * ## Site model
  *
  * WallHere is a tag-first, multi-language wallpaper catalogue. One
  * flat masonry grid renders EVERY listing — twenty-four items per
- * page — and every listing speaks the same query vocabulary the
- * site's own filter panel offers:
+ * page — and the listings this provider rides:
  *
- * - `/en/wallpapers` — `order=popular|latest`, `q=` keyword search
- *   (the top form's own target), `page=N` (the popular order runs
- *   seventy-thousand pages deep), plus the panel's filters:
- *   `NSFW=off` (the site's purity switch — its own nav links it),
- *   `direction=horizontal|vertical`, `color=RRGGBB`,
+ * - `/en/wallpapers` — `order=popular|latest`, `page=N` (the popular
+ *   order runs seventy-thousand pages deep), plus the panel's filters:
+ *   `NSFW=off`, `direction=horizontal|vertical`, `color=RRGGBB`,
  *   `min_width`/`min_height`;
  * - `/en/random` — the random surface: a 343-thousand-wallpaper
- *   listing that reshuffles on every load — the v2.0.0 fallback lane
- *   and the `sorting=random` feed's own endless source;
+ *   STABLE listing, 14,295 pages deep — the fallback lane and the
+ *   `sorting=random` feed's own listing, walked by its own pages;
+ * - `/en/tag/{id}` — one strictly-tagged grid per tag, thousands of
+ *   pages deep, the search precision lane (see [WallhereTags]);
  * - `/en/wallpaper/{id}` — the detail page every grid cell links.
  *
  * The grid's `current-item-photo` anchors disclose each wallpaper's
@@ -121,43 +136,41 @@ import java.net.URLEncoder
  * riding a WebView-earned clearance still travels under the
  * clearance's own (mobile) agent — clearance binding wins, per the
  * facade contract — and THAT is exactly the lane the content-verified
- * walk with its random fallback was built to survive: the mobile
+ * walk with its deep random fallback was built to survive: the mobile
  * dialect's bar-less pages parse with the same grid regexes, and a
- * dead page parameter degrades to the reshuffling random surface
+ * dead page parameter degrades to the random listing's next page
  * instead of a dead feed.
  *
  * ## Contract mapping
  *
  * - [popular] rides the host vocabulary: a recognized `category`
- *   walks that category's own search lane (anime, people), `sorting=
- *   date` walks the latest order, `sorting=random` rides the random
- *   surface's own reshuffle mode (every page a fresh shuffle, the
- *   id memory keeping the sequence duplicate-free), and everything
- *   else lands on the popular order;
- * - [search] rides the site's own `/en/wallpapers?q=` search — one
- *   request per page, as deep as the site goes, with the random
- *   fallback keeping the scroll alive on dead-parameter connections;
- *   a BLANK query rides the latest order at the page the host asked
- *   for;
+ *   walks that category's own tag lane (anime, people), `sorting=
+ *   date` walks the latest order, `sorting=random` walks the random
+ *   listing's own pages, and everything else lands on the popular
+ *   order;
+ * - [search] resolves the query through the tag catalogue
+ *   ([WallhereTags.bestTag] — exact, then per-word, then phrase) and
+ *   walks that tag's own grid; a query resolving to nothing is the
+ *   honest empty answer; a BLANK query rides the latest order at the
+ *   page the host asked for;
  * - [sections] offers the ranked shelves plus tag-style `query`
- *   presets whose values the host routes through [search];
+ *   presets whose values the host routes through [search] — every
+ *   one of them a real tag in the catalogue;
  * - [details] fetches `/en/wallpaper/{id}` and reads the definitive
  *   record: the true original's URL and resolution, the display
  *   fallback, the uploader and the page's fuller tag row;
- * - [suggestTags] answers offline from a small baked seed of the
- *   site's own most-popular tags (harvested from its live tag index,
- *   adult vocabulary withheld) plus tags harvested from grids already
- *   seen — never a third-party service;
- * - [random] serves the site's own random batch as-is — a real
+ * - [suggestTags] answers offline from the baked catalogue plus tags
+ *   harvested from grids already seen — never a third-party service;
+ * - [random] serves the random listing's first page as-is — a real
  *   random feed, advertised with [Capability.RANDOM].
  *
  * ## Politeness
  *
  * The site's robots.txt excludes only its login and signup paths;
- * every path used here — the listings, the search, the random page,
- * the wallpaper pages — is left open. Fetches happen on explicit user
- * actions, one request per page (two on the fallback lane, the dead
- * probe plus the random draw), with a deep-pagination cap.
+ * every path used here — the listings, the tag grids, the random
+ * listing, the wallpaper pages — is left open. Fetches happen on
+ * explicit user actions, one request per page (up to four on the
+ * fallback lane's skip-ahead, bounded), with a deep-pagination cap.
  */
 class WallhereWallpaperProvider : WallpaperProvider {
     private var httpClient: ProviderHttpClient? = null
@@ -166,9 +179,9 @@ class WallhereWallpaperProvider : WallpaperProvider {
         ProviderMeta(
             id = ID,
             name = "WallHere",
-            versionName = "2.0.0",
+            versionName = "2.0.1",
             author = "Cloudimage",
-            description = "Free HD wallpapers from wallhere.com - keyless scraper with endless pagination on every surface.",
+            description = "Free HD wallpapers from wallhere.com - keyless scraper with tag-precise search and endless pagination on every surface.",
             // The site mixes adult-tagged content into its default feeds;
             // SKETCHY is the honest floor, every item is classified by its
             // own tag row, and SFW-only requests additionally ride the
@@ -188,13 +201,14 @@ class WallhereWallpaperProvider : WallpaperProvider {
 
     /**
      * The default feed, ridden through the host vocabulary: a
-     * recognized `category` walks that category's own search lane
+     * recognized `category` walks that category's own tag lane
      * (the precise grids), `sorting=date` walks the latest order,
-     * `sorting=random` rides the random surface's reshuffle mode
-     * (every page a fresh shuffle, the id memory keeping the
-     * sequence duplicate-free), and everything else lands on the
-     * popular order — the feed the browse tab shows first. SFW-only
-     * requests carry the site's own `NSFW=off` switch on every URL.
+     * `sorting=random` walks the random listing's own pages (a
+     * stable, 14,295-page listing — walked by `?page=N` like any
+     * other, the id memory keeping the sequence duplicate-free), and
+     * everything else lands on the popular order — the feed the
+     * browse tab shows first. SFW-only requests carry the site's
+     * own `NSFW=off` switch on every URL.
      */
     override suspend fun popular(
         page: Int,
@@ -206,18 +220,25 @@ class WallhereWallpaperProvider : WallpaperProvider {
             when {
                 category != null -> listingPage(category, page, sfwOnly)
                 filters.isSelected("sorting", "date") -> listingPage(LATEST_PATH, page, sfwOnly)
-                filters.isSelected("sorting", "random") -> listingPage(RANDOM_PATH, page, sfwOnly, reshuffle = true)
+                filters.isSelected("sorting", "random") -> listingPage(RANDOM_PATH, page, sfwOnly)
                 else -> listingPage(POPULAR_PATH, page, sfwOnly)
             }
         }
 
     /**
-     * Search rides the site's own top form (`/en/wallpapers?q=`),
-     * walked page by page with the content-verified continuation —
-     * fresh cells serve, a dead page parameter degrades to the random
-     * surface, and the site clamping past its last result page is the
-     * honest end. A blank query (the contract's escape hatch) lands
-     * on the latest order at the page the host asked for.
+     * Search rides the site's ONE precision surface: the tag grids.
+     * The query resolves through the baked catalogue — a tag named
+     * EXACTLY, a tag named by one of the query's WORDS (the
+     * content-bearing noun of a multi-word query), or a tag whose
+     * name CONTAINS the query phrase — and the walk then follows that
+     * tag's own grid page by page, content-verified, with the random
+     * fallback keeping the scroll alive on dead-parameter
+     * connections. A query resolving to NO tag is the honest empty
+     * answer: the site's `?q=` lane ignores the parameter outright
+     * (probed live — a nonsense query answers with the popular grid),
+     * and serving the popular feed as "results" is the lie this
+     * rewrite removes. A blank query (the contract's escape hatch)
+     * lands on the latest order at the page the host asked for.
      */
     override suspend fun search(
         query: String,
@@ -230,28 +251,30 @@ class WallhereWallpaperProvider : WallpaperProvider {
             if (trimmed.isBlank()) {
                 listingPage(LATEST_PATH, page, sfwOnly)
             } else {
-                listingPage(searchPath(trimmed), page, sfwOnly)
+                val tag = WallhereTags.bestTag(trimmed) ?: return@runCatching Page(emptyList(), nextPage = null)
+                listingPage(tagPath(tag.id), page, sfwOnly)
             }
         }
 
     /**
-     * Suggestions answer offline, immediately: the baked seed of the
-     * site's own most-popular tags first, supplemented by tag rows
+     * Suggestions answer offline, immediately: the baked catalogue's
+     * own tiered matches (exact, prefix, contains, popularity-ordered,
+     * adult vocabulary withheld per WORD) supplemented by tag rows
      * this instance has already seen in fetched grids — adult
-     * vocabulary withheld per WORD of the name in both lanes.
+     * vocabulary withheld in both lanes.
      */
     override suspend fun suggestTags(query: String): Result<List<String>> =
         runCatching {
             if (query.isBlank()) {
                 emptyList()
             } else {
-                val seed =
-                    SEED_TAGS.filter { it.contains(query, ignoreCase = true) }
+                val catalogued =
+                    WallhereTags.suggestions(query, TAG_SUGGESTION_LIMIT * 2, ::isAdultTag)
                 val seen =
                     synchronized(lock) { tagPool.toList() }
                         .filter { it.contains(query, ignoreCase = true) }
-                (seed + seen)
-                    .filterNot(::isAdultTag)
+                        .filterNot(::isAdultTag)
+                (catalogued + seen)
                     .distinct()
                     .take(TAG_SUGGESTION_LIMIT)
             }
@@ -261,7 +284,8 @@ class WallhereWallpaperProvider : WallpaperProvider {
      * The home shelves: the two ranked feeds first (Popular is the
      * default row the host's merged home picks), then tag-style
      * `query` presets whose values the host routes through [search] —
-     * every one of them walked with the same endless continuation.
+     * every one of them a real catalogue tag, so every row walks a
+     * real tag's deep grid.
      */
     override suspend fun sections(): List<HomeSection> =
         listOf(
@@ -329,10 +353,11 @@ class WallhereWallpaperProvider : WallpaperProvider {
         }
 
     /**
-     * The site's own random page: one fresh batch of twenty-four,
+     * The site's own random surface: the random listing's first page,
      * served as-is (per-item classified — the bare contract call
      * carries no filters to map onto the site's purity switch). The
-     * page reshuffles on every load — there is no page 2 of a batch.
+     * listing is stable between loads — the walk's continuation rides
+     * its own `?page=N`, not a re-draw.
      */
     override suspend fun random(): Result<List<Wallpaper>> =
         runCatching {
@@ -363,27 +388,20 @@ class WallhereWallpaperProvider : WallpaperProvider {
      *   than requested, or advertises none so deep — the honest end)
      *   or the page parameter DEAD on this connection (the mobile
      *   dialect, a cache-flattened replay) — and the dead case
-     *   CONTINUES ON THE RANDOM SURFACE instead of dying: the walk
-     *   this listing's users scroll keeps being fed fresh wallpapers
-     *   from a surface that needs no page parameter at all. The
-     *   v1.x line errored or stopped silently here — the twenty-four
-     *   item truncation this rewrite exists to kill.
-     *
-     * [reshuffle] is the random surface's own feed mode: every page
-     * beyond the first is a fresh reshuffled draw of the bare path,
-     * the id memory keeping the sequence duplicate-free without any
-     * page parameter at all.
+     *   CONTINUES ON THE RANDOM LISTING's own next page: a stable
+     *   fourteen-thousand-page listing, walked one page further each
+     *   draw by the per-listing cursor, needing the listing's own
+     *   page parameter only — so the user's scroll keeps being fed
+     *   real, fresh wallpapers page after page. This is the fix for
+     *   the v2.0.0 cliff, where the bare-path re-draw served one
+     *   usable draw and then repeated the walk's whole memory.
      */
     private suspend fun listingPage(
         path: String,
         page: Int,
         sfwOnly: Boolean,
-        reshuffle: Boolean = false,
     ): Page {
         if (page < 1 || page > MAX_PAGES) return Page(emptyList(), nextPage = null)
-        if (reshuffle && page > 1) {
-            return randomContinuation(listingKey(path, sfwOnly), page, sfwOnly)
-        }
 
         val response = get(listingUrl(path, page, sfwOnly))
         if (!response.isSuccessful) {
@@ -413,7 +431,7 @@ class WallhereWallpaperProvider : WallpaperProvider {
         // legitimate past-the-end answer carries). Everything else —
         // a shallower page's bar, a bar with no current marker, no bar
         // at all — is the page parameter dead on this connection, and
-        // the random surface keeps the walk alive.
+        // the random listing's next page keeps the walk alive.
         val clampedPastEnd =
             bar.present &&
                 (
@@ -427,36 +445,50 @@ class WallhereWallpaperProvider : WallpaperProvider {
     }
 
     /**
-     * The walk's fallback lane: a fresh draw from the random surface —
-     * the bare path reshuffles its batch on every load, on every
-     * connection, in every dialect — deduped against the listing's
-     * served-id memory so nothing repeats. A draw that repeats
-     * everything the walk already served (a walk at the cap of a very
-     * narrow pool) is the honest end; anything else keeps the scroll
-     * fed, which is the entire point.
+     * The walk's fallback lane — v2.0.1: the random listing WALKED, not
+     * re-drawn. The bare `/en/random` answers the same batch load over
+     * load (probed live), but it is a real listing fourteen-thousand
+     * pages deep with a working `?page=N`; the per-listing cursor
+     * remembers how far this listing's fallback has walked and asks
+     * for the NEXT page each time — an endless source of fresh cells
+     * on every connection and every dialect, deduped against the
+     * walk's id memory.
+     *
+     * A page that repeats the walk's whole memory (an overlapping
+     * shuffle region, a boundary) is not the end yet: the cursor
+     * skips ahead, bounded by [RANDOM_SKIP_LIMIT] extra fetches per
+     * call, before the walk answers the honest end. Past the
+     * hundred-page cap the walk is over regardless.
      */
     private suspend fun randomContinuation(
         key: String,
         page: Int,
         sfwOnly: Boolean,
     ): Page {
-        val response = get(listingUrl(RANDOM_PATH, page = 1, sfwOnly = sfwOnly))
-        if (!response.isSuccessful) {
-            throw httpError(response.statusCode)
+        var cursor = randomCursorFor(key)
+        var attempts = 0
+        while (attempts <= RANDOM_SKIP_LIMIT) {
+            val response = get(listingUrl(RANDOM_PATH, page = cursor, sfwOnly = sfwOnly))
+            if (!response.isSuccessful) {
+                throw httpError(response.statusCode)
+            }
+            val seen = seenIdsFor(key)
+            val fresh =
+                WallhereParser.parseGrid(response.bodyText)
+                    .filter { it.id !in seen }
+            cursor += 1
+            rememberRandomCursor(key, cursor)
+            if (fresh.isNotEmpty()) {
+                rememberSeenIds(key, seen + fresh.map { it.id })
+                rememberTagsFrom(fresh)
+                return Page(
+                    fresh.map(::gridWallpaper),
+                    nextPage = if (page >= MAX_PAGES) null else page + 1,
+                )
+            }
+            attempts += 1
         }
-        val seen = seenIdsFor(key)
-        val fresh =
-            WallhereParser.parseGrid(response.bodyText)
-                .filter { it.id !in seen }
-        if (fresh.isEmpty()) {
-            return Page(emptyList(), nextPage = null)
-        }
-        rememberSeenIds(key, seen + fresh.map { it.id })
-        rememberTagsFrom(fresh)
-        return Page(
-            fresh.map(::gridWallpaper),
-            nextPage = if (page >= MAX_PAGES) null else page + 1,
-        )
+        return Page(emptyList(), nextPage = null)
     }
 
     /**
@@ -567,6 +599,30 @@ class WallhereWallpaperProvider : WallpaperProvider {
     }
 
     /**
+     * How far into the random listing this listing's fallback lane
+     * has walked — the fallback cursor. The random listing is stable
+     * between loads (probed live), so the cursor must NEVER go
+     * backwards: it survives page-one refreshes and feed restarts,
+     * because the random pages it has already served were served to
+     * an EARLIER walk's memory, and a refreshed feed starting the
+     * cursor over would re-serve exactly those pages as "fresh".
+     */
+    private val randomCursorsByListing = HashMap<String, Int>()
+
+    private fun randomCursorFor(listingKey: String): Int =
+        synchronized(lock) { randomCursorsByListing[listingKey] ?: 1 }
+
+    private fun rememberRandomCursor(
+        listingKey: String,
+        cursor: Int,
+    ) {
+        synchronized(lock) {
+            val current = randomCursorsByListing[listingKey] ?: 1
+            if (cursor > current) randomCursorsByListing[listingKey] = cursor
+        }
+    }
+
+    /**
      * True when a tag carries an adult word — checked per WORD
      * (spaces, hyphens and underscores all split), so multi-word rows
      * ("panties down", "Lingerie Football League") are caught exactly
@@ -591,16 +647,16 @@ class WallhereWallpaperProvider : WallpaperProvider {
     }
 
     /**
-     * The search-lane path of a host `category` value, when the site's
-     * own vocabulary expresses one: `anime` rides the site's
-     * anime-search grid, `people` the portrait grid — the honest
-     * nearest expression of a value the site files no single category
-     * under. `general` needs no lane: it is the default feed.
+     * The tag-lane path of a host `category` value, when the catalogue
+     * expresses one: `anime` walks the anime tag's grid, `people` the
+     * portrait grid — the honest nearest expression of a value the
+     * site files no single category under. `general` needs no lane:
+     * it is the default feed.
      */
     private fun categoryLane(category: String): String? =
         when (category.lowercase()) {
-            "anime" -> searchPath("anime")
-            "people" -> searchPath("portrait")
+            "anime" -> WallhereTags.bestTag("anime")?.let { tagPath(it.id) }
+            "people" -> WallhereTags.bestTag("portrait")?.let { tagPath(it.id) }
             else -> null
         }
 
@@ -613,7 +669,9 @@ class WallhereWallpaperProvider : WallpaperProvider {
      * The full listing URL: the path as given, the site's own
      * `NSFW=off` switch prepended to the query when the host asks for
      * SFW-only content, and `page=N` appended for deep pages — the
-     * dialect the site's own bar links and nav links use.
+     * dialect the site's own bar links and nav links use. The random
+     * listing's fallback pages ride the same builder: `?page=N` is
+     * what its own bar links speak.
      */
     private fun listingUrl(
         path: String,
@@ -628,8 +686,8 @@ class WallhereWallpaperProvider : WallpaperProvider {
         return "$BASE_URL$path$joiner${params.joinToString("&")}"
     }
 
-    /** The search listing path for [query], the site's own form encoding. */
-    private fun searchPath(query: String): String = "/en/wallpapers?q=${encode(query)}"
+    /** The tag listing path of a catalogue tag id — the search precision lane. */
+    private fun tagPath(id: String): String = "/en/tag/$id"
 
     private suspend fun get(url: String): ProviderHttpResponse =
         httpClient?.get(url, DOCUMENT_HEADERS)
@@ -656,6 +714,13 @@ class WallhereWallpaperProvider : WallpaperProvider {
         const val FULL_PAGE = 24
 
         /**
+         * How many pages past the cursor the fallback may skip when a
+         * random page repeats the walk's whole memory — bounded so the
+         * lane can never hammer the site on a pathological listing.
+         */
+        const val RANDOM_SKIP_LIMIT = 3
+
+        /**
          * The desktop Chrome identity every document fetch claims. The
          * site serves its listings to mobile agents in the bar-less
          * dialect, and the host's phone lanes are mobile or
@@ -671,51 +736,6 @@ class WallhereWallpaperProvider : WallpaperProvider {
 
         /** The headers every document fetch rides: the desktop identity alone. */
         val DOCUMENT_HEADERS = mapOf("User-Agent" to DESKTOP_USER_AGENT)
-
-        /**
-         * The suggestion seed — the site's own most-popular tags as its
-         * live tag index states them (October 2026), adult vocabulary
-         * and bare-year noise withheld at bake time. The harvested pool
-         * supplements this from real grids; both lanes ride the same
-         * per-word adult filter at run time.
-         */
-        val SEED_TAGS =
-            listOf(
-                "nature",
-                "landscape",
-                "anime",
-                "anime girls",
-                "artwork",
-                "digital art",
-                "video games",
-                "sky",
-                "sea",
-                "water",
-                "trees",
-                "sunset",
-                "mountains",
-                "clouds",
-                "animals",
-                "forest",
-                "city",
-                "night",
-                "car",
-                "portrait",
-                "brunette",
-                "blonde",
-                "long hair",
-                "blue eyes",
-                "Tokyo",
-                "Japan",
-                "Asian",
-                "fantasy art",
-                "simple background",
-                "monochrome",
-                "tattoo",
-                "women",
-                "model",
-                "looking at viewer",
-            )
 
         /** How many listings' seen-id sets the content-verification memory keeps. */
         const val SEEN_LISTINGS_LIMIT = 16
