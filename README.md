@@ -38,7 +38,7 @@ per-member uninstall/update afterwards.
 
 | Bundle | What's inside |
 |---|---|
-| **Essential Wallpapers** | WallpaperFlare — HD, 2K, 4K, 5K wallpapers from wallpaperflare.com, keyless scraper; WallpapersDen — HD, 4K, 5K, 8K wallpapers from wallpapersden.com, keyless scraper; Zastavki — browse-first shelves (36 categories) from zastavki.com, keyless scraper; WallHere — HD wallpapers from wallhere.com, keyless scraper whose content-verified walk paginates endlessly on every surface (the v2.0.1 line: the fallback walks the random listing's own 14,295 pages by cursor instead of re-drawing a batch that probing proved stable, and search rides the site's real tag lane `/en/tag/{id}` instead of the `?q=` parameter the site ignores); Behance — design-grade wallpapers from behance.net project collections, keyless scraper |
+| **Essential Wallpapers** | WallpaperFlare — HD, 2K, 4K, 5K wallpapers from wallpaperflare.com, keyless scraper; WallpapersDen — HD, 4K, 5K, 8K wallpapers from wallpapersden.com, keyless scraper; Zastavki — browse-first shelves (36 categories) from zastavki.com, keyless scraper; WallHere — HD wallpapers from wallhere.com, keyless scraper whose content-verified walk paginates endlessly on every surface (the v2.0.1 line: the fallback walks the random listing's own 14,295 pages by cursor instead of re-drawing a batch that probing proved stable, and search rides the site's real tag lane `/en/tag/{id}` instead of the `?q=` parameter the site ignores) |
 
 The catalog also carries **standalone packages** outside any bundle:
 Unsplash and Pixabay (free API key required), Pexels (free API key
