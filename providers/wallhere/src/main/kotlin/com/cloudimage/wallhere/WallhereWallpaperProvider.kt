@@ -17,9 +17,28 @@ import java.net.URLEncoder
 /**
  * WallHere (https://wallhere.com) as a Cloudimage provider package — a
  * keyless scraper over the site's server-rendered pages, the same way
- * every scraping source in this set works. This is the v2.0.1 line:
+ * every scraping source in this set works. This is the v2.0.2 line:
  * the walk that cannot die at twenty-four, on lanes that actually
- * exist.
+ * exist, under a bar whose hrefs actually parse.
+ *
+ * ## What v2.0.2 exists to fix — the bar's hrefs are HTML-ESCAPED
+ *
+ * THE RANKED ORDERS' PAGINATION BARS KILLED THE WALK AT PAGE ONE. The
+ * live popular bar's links read `…?order=popular&amp;page=2` — the
+ * page parameter is the SECOND query parameter there, so the site's
+ * own markup escapes its separator as `&amp;`, and the parser's
+ * page-link dialect (bare `[?&]page=`) matched NOTHING on those bars:
+ * maxPage fell back to the CURRENT page, and the walk's "more
+ * exists" rule answered "the bar admits nowhere deeper" — nextPage
+ * null — so every ranked feed ended at exactly page one. Probed live
+ * (October 2026): the tag grids and the random listing put `page=` FIRST
+ * (`?page=2`) and parsed fine; only the ranked orders carried the
+ * escaped dialect. Two layers fix it: the link dialect now accepts the
+ * `amp;` arm, and a page that served the site's FULL twenty-four
+ * fresh cells continues even under a bar whose links parse as nowhere
+ * deeper (a full page is itself the site's own "the listing
+ * continues" — a listing that truly ended answers the next page with
+ * repeats, and the clamp check names the honest end there).
  *
  * ## What v2.0.1 exists to fix — two premises of the v2.0.0 walk that
  * live probing falsified (October 2026)
@@ -179,7 +198,7 @@ class WallhereWallpaperProvider : WallpaperProvider {
         ProviderMeta(
             id = ID,
             name = "WallHere",
-            versionName = "2.0.1",
+            versionName = "2.0.2",
             author = "Cloudimage",
             description = "Free HD wallpapers from wallhere.com - keyless scraper with tag-precise search and endless pagination on every surface.",
             // The site mixes adult-tagged content into its default feeds;
@@ -498,6 +517,15 @@ class WallhereWallpaperProvider : WallpaperProvider {
      * advertises the next page itself (the mobile dialect — the site
      * pads every page of a continuing listing to its fixed size), and
      * the walk's deep-pagination cap bounds everything.
+     *
+     * The belt under the bar: a page that served the site's FULL
+     * twenty-four fresh cells is itself evidence the listing
+     * continues — the site pads every page of a continuing listing to
+     * its fixed size — so even a bar whose links parse as nothing
+     * deeper (a redesigned bar, an unrecognized href dialect) cannot
+     * end a feed that just served a full page. The cost is one
+     * bounded probe: a listing that truly ended answers the next page
+     * with repeats, and the clamp check names the honest end there.
      */
     private fun continueFrom(
         page: Int,
@@ -506,7 +534,7 @@ class WallhereWallpaperProvider : WallpaperProvider {
     ): Int? =
         when {
             page >= MAX_PAGES -> null
-            bar.present -> if (bar.maxPage > page) page + 1 else null
+            bar.present -> if (bar.maxPage > page || freshCount >= FULL_PAGE) page + 1 else null
             freshCount >= FULL_PAGE -> page + 1
             else -> null
         }

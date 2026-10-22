@@ -182,6 +182,99 @@ class WallhereWallpaperProviderTest {
         }
 
     /**
+     * The desktop dialect's pagination bar in its LIVE ranked-order
+     * shape: absolute hrefs whose SECOND query parameter is the page,
+     * so the separator arrives HTML-ESCAPED — `…&amp;page=2`. This is
+     * the dialect the v2.0.2 line exists to parse: the ranked orders
+     * (popular, latest, every NSFW-filtered variant) are the listings
+     * where `page=` rides behind another parameter, and the bare
+     * `[?&]page=` dialect matched NOTHING on them — the bar parsed as
+     * nowhere deeper than the current page, and every ranked feed
+     * ended at page one. Probed live, October 2026.
+     */
+    private fun escapedBar(
+        current: Int,
+        max: Int,
+    ): String {
+        val numbered =
+            (1..minOf(5, max)).joinToString("") { page ->
+                val active = if (page == current) "active" else ""
+                """<li class="$active"><a href="https://wallhere.com/en/wallpapers?order=popular&amp;page=$page&amp;_x_tr_hl=en">$page</a></li>"""
+            }
+        return """
+            <ul class="pagination pagination-lg"><li><a href="javascript:void(0)"><i class="fa fa-angle-left">«</i></a></li>$numbered<li class=""><a href="javascript:void(0)">...</a></li><li class=""><a href="https://wallhere.com/en/wallpapers?order=popular&amp;page=${max - 1}&amp;_x_tr_hl=en">${max - 1}</a></li><li class=""><a href="https://wallhere.com/en/wallpapers?order=popular&amp;page=$max&amp;_x_tr_hl=en">$max</a></li><li><a href="javascript:void(0)" title="»"><i class="fa fa-angle-right">»</i></a></li></ul>
+        """.trimIndent()
+    }
+
+    /**
+     * THE v2.0.2 REGRESSION, the live field failure verbatim: the
+     * popular feed's own bar speaks the ESCAPED href dialect, and the
+     * bare page-link dialect parsed it as nowhere deeper than page
+     * one — nextPage null — so the default feed ended at exactly
+     * twenty-four items (fewer after the host's purity filter). The
+     * amp-aware dialect reads the same bar's deepest link (70,354 the
+     * day this was probed) and the walk continues.
+     */
+    @Test
+    fun rankedOrderBarsCarryEscapedHrefsAndStillParse() =
+        runTest {
+            val client =
+                configureWith(
+                    mapOf(
+                        popularUrl to ok("${gridOf(24, 3000001)}\n${escapedBar(1, 70354)}"),
+                        popularPage(2) to ok("${gridOf(24, 3000025)}\n${escapedBar(2, 70354)}"),
+                    ),
+                )
+
+            val first = provider.popular(1, Filters.None).getOrThrow()
+            assertEquals(
+                "the escaped bar must advertise page two — the v2.0.1 field bug ended every ranked feed here",
+                2,
+                first.nextPage,
+            )
+
+            val second = provider.popular(2, Filters.None).getOrThrow()
+            assertEquals(24, second.wallpapers.size)
+            assertTrue(second.wallpapers.all { it.id.toInt() >= 3000025 })
+            assertEquals(3, second.nextPage)
+        }
+
+    /**
+     * The belt under the bar: a page that served the site's FULL
+     * twenty-four fresh cells continues even when the bar's links
+     * parse as nowhere deeper (a redesigned bar, an unrecognized
+     * href dialect) — the padding rule is the site's own "the listing
+     * continues", and a listing that truly ended answers the next
+     * page with repeats and the clamp check's honest end.
+     */
+    @Test
+    fun fullFreshPageContinuesUnderANowhereDeeperBar() =
+        runTest {
+            val client =
+                configureWith(
+                    mapOf(
+                        popularUrl to ok("${gridOf(24, 3000001)}\n${bar(1, 1)}"),
+                        // The probe: a full page again (the site pads
+                        // continuing listings), bar admitting nothing.
+                        popularPage(2) to ok("${gridOf(24, 3000025)}\n${bar(2, 2)}"),
+                        // The honest end: repeats with the clamp shape.
+                        popularPage(3) to ok("${gridOf(24, 3000025)}\n${bar(2, 2)}"),
+                    ),
+                )
+
+            val first = provider.popular(1, Filters.None).getOrThrow()
+            assertEquals("a full fresh page outranks a nowhere-deeper bar", 2, first.nextPage)
+
+            val second = provider.popular(2, Filters.None).getOrThrow()
+            assertEquals(24, second.wallpapers.size)
+            assertEquals(3, second.nextPage)
+
+            val third = provider.popular(3, Filters.None).getOrThrow()
+            assertTrue("the repeats + clamp bar name the honest end", third.wallpapers.isEmpty())
+            assertNull(third.nextPage)
+        }
+
+    /**
      * The bar's LAST page: the active marker sits on the deepest
      * numbered link, and the walk ends there — a page one whose bar
      * admits only two pages offers a second, the short second page
@@ -873,7 +966,7 @@ class WallhereWallpaperProviderTest {
     @Test
     fun metaDeclaresTheV2Shape() {
         assertEquals("cloudimage.wallhere", provider.meta.id)
-        assertEquals("2.0.1", provider.meta.versionName)
+        assertEquals("2.0.2", provider.meta.versionName)
         assertEquals(ContentRating.SKETCHY, provider.meta.contentRating)
         assertEquals(
             setOf(Capability.POPULAR, Capability.LATEST, Capability.SEARCH, Capability.FILTERS, Capability.TAGS, Capability.RANDOM),

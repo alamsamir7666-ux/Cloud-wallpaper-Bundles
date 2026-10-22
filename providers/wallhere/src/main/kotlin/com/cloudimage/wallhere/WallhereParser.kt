@@ -174,8 +174,18 @@ internal object WallhereParser {
             """<li\b[^>]*class="[^"]*\bactive\b[^"]*"[^>]*>\s*<(?:a|span)\b[^>]*>\s*(\d{1,5})\s*<""",
         )
 
-    /** One bar page link: the `?page=N` dialect, query params preserved. */
-    private val PAGE_LINK = Regex("""<a\b[^>]*href="[^"]*?[?&]page=(\d{1,5})[^"]*"[^>]*>""")
+    /**
+     * One bar page link. The bar's hrefs are HTML — and on the ranked
+     * orders (`?order=popular`, `?order=latest`, every NSFW-filtered
+     * variant) the page parameter is the SECOND query parameter, so
+     * the site's own markup escapes its separator: `…&amp;page=2`.
+     * The optional `amp;` arm matches that live dialect alongside the
+     * bare one — without it the ranked orders' bars parsed as
+     * "no page links at all" (maxPage fell back to the CURRENT page),
+     * and the walk ended every ranked feed after page one: the field
+     * truncation the v2.0.2 line exists to kill.
+     */
+    private val PAGE_LINK = Regex("""<a\b[^>]*href="[^"]*?[?&](?:amp;)?page=(\d{1,5})[^"]*"[^>]*>""")
 
     /** The wallpaper page's display image: the img stamped `itemprop="contentURL"`. */
     private val CONTENT_URL_IMG = Regex("""<img\b[^>]*itemprop=["']contentURL["'][^>]*>""")

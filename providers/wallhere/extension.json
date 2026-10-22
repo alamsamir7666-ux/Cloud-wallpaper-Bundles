@@ -1,8 +1,8 @@
 {
   "id": "cloudimage.wallhere",
   "name": "WallHere",
-  "versionName": "2.0.1",
-  "versionCode": 8,
+  "versionName": "2.0.2",
+  "versionCode": 9,
   "author": "Cloudimage",
   "description": "Free HD wallpapers from wallhere.com - keyless scraper with tag-precise search and endless pagination on every surface.",
   "categories": ["nature", "abstract", "anime"],
